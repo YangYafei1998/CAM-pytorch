@@ -89,7 +89,7 @@ def train(trainloader, model, use_cuda, epoch, num_epochs, criterion, optimizer,
 
 
 
-def retest(testloader, model, use_cuda, criterion, epoch):
+def test(testloader, model, use_cuda, criterion, epoch):
     model.eval()
     test_loss = 0
     correct = 0
