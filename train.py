@@ -110,6 +110,7 @@ def test(testloader, model, use_cuda, criterion, epoch):
  
             correct += pred.eq(target.data.view_as(pred)).cpu().sum()
 
+
         test_loss /= len(testloader.dataset)
         test_acc = 100. * correct / len(testloader.dataset)
         test_acc = test_acc.item()
