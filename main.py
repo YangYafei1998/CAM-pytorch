@@ -204,8 +204,6 @@ criterion = TCLoss(3)
 # test and generate CAM video 
 if EPOCH == 0:
     test(testloader, net, USE_CUDA, criterion, 0)
-    #calculate avg localization loss
-    test_localization(net, features_blobs, classes)
 for epoch in range (1, EPOCH + 1):
     net = train(trainloader, net, USE_CUDA, epoch, EPOCH + 1, criterion, optimizer, time_consistency)
     test(testloader, net, USE_CUDA, criterion, epoch)
