@@ -236,12 +236,14 @@ def get_localization_loss(net, features_blobs, img_pil, classes, img_name, path,
         coverted_gt = torch.from_numpy(gt_image).float().to(device) + 1e-20
         coverted_gt = coverted_gt/torch.sum(coverted_gt)
         localization_loss = 1000.0*F.kl_div(coverted_heatmap.log(), coverted_gt, reduction='mean')
+
          # calculate box iou:
         box_iou = iou_box([x, y, x+x_len, y+y_len],[prop.bbox[1], prop.bbox[0], prop.bbox[3], prop.bbox[2]])
         # calculate pixel iou:
         binary_gt = np.zeros((256, 256), dtype=np.uint8)
         binary_gt[y:y+y_len, x:x+x_len] = 1
         binary_cam = CAM/CAM.max()
+        binary_cam = np.where(binary_cam>=0.5,1.0,0)
         pixel_iou = iou_pixel(binary_cam, binary_gt)
 
         return localization_loss, box_iou, pixel_iou
