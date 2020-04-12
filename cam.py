@@ -17,7 +17,7 @@ def write_text_to_img(img, text, color=(255, 255, 255), org=(30,50)):
                     fontScale, color, thickness, cv2.LINE_AA) 
     return img
 
-def undesired_objects (image):
+def largest_component(image):
     image = image.astype('uint8')
     nb_components, output, stats, centroids = cv2.connectedComponentsWithStats(image, connectivity=4)
     sizes = stats[:, -1]
@@ -33,26 +33,22 @@ def undesired_objects (image):
     img2[output == max_label] = 255
     return img2
 
-def generate_bbox (image):
-    # img = cv2.imread('input.jpg', 0)
+def generate_bbox(image):
     bar = image.max()*0.8
-    print(f"bar: {bar}")
     ret,thresh1 = cv2.threshold(image,bar,255,cv2.THRESH_BINARY)
-    result = undesired_objects(thresh1)
+    result = largest_component(thresh1)
     lbl_0 = label(result) 
     props = regionprops(lbl_0)
-    for prop in props:
-            print('Found bbox', prop.bbox)
-            # bbox_img = cv2.rectangle(image, (prop.bbox[1], prop.bbox[0]), (prop.bbox[3], prop.bbox[2]), (255, 0, 0), 2)
-            # cv2.imwrite('bbox_img.jpg', bbox_img)
-            return prop
-def iou_pixel(inputs, target, smooth=1):
-    # Numerator Product
-    inter = inputs * target
-    #Denominator 
-    union= inputs + target - (inputs*target)
-    ## Sum over all pixels N x C x H x W => N x C
+    return props[0]
+    # for prop in props:
+    #         # print('Found bbox', prop.bbox)
+    #         # bbox_img = cv2.rectangle(image, (prop.bbox[1], prop.bbox[0]), (prop.bbox[3], prop.bbox[2]), (255, 0, 0), 2)
+    #         # cv2.imwrite('bbox_img.jpg', bbox_img)
+    #         return prop
 
+def iou_pixel(inputs, target):
+    inter = inputs * target
+    union= inputs + target - (inputs*target)
     iou = inter.sum()/union.sum()
     return iou
 
