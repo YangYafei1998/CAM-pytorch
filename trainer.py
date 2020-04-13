@@ -23,7 +23,7 @@ class Trainer():
         
         ## device
         if config['device'] != -1:
-            cuda_id = "cuda:"+config['device']
+            cuda_id = f"cuda:{config['device']}"
             self.device = torch.device(cuda_id)
         else:
             self.device = torch.device("cpu")
@@ -64,6 +64,8 @@ class Trainer():
     def train(self, max_epoch, do_validation=True):
         if max_epoch is not None:
             self.max_epoch = max_epoch
+
+        self.test_one_epoch(0)
 
         for epoch in range(max_epoch):
             self.train_one_epoch(epoch)
@@ -136,6 +138,7 @@ class Trainer():
                 if self.time_consistency:
                     cls_sum += cls_loss.item()
                     temp_sum +=  temp_loss.item()
+            print('Train Epoch: {}\tLoss: {:.3f}\tAccuracy: {:.3f}%'.format(epoch, loss_sum, train_acc))
 
         acc_avg = acc_sum.item() / len(self.trainloader)
         loss_avg = loss_sum / len(self.trainloader.dataset)
@@ -169,15 +172,15 @@ class Trainer():
         self.model.eval()
         test_loss = 0
         correct = 0
-        with torch.set_grad_enabled(False):
-            for data, target in testloader:
-                if use_cuda:
-                    data, target = data.cuda(), target.cuda()
+        with torch.no_grad():
+            for batch_idx, batch in enumerate(self.testloader):
+                data, target, idx = batch
+                data, target = data.to(self.device), target.to(self.device)
                 data, target = Variable(data), Variable(target)
-                output = model(data)
+                output = self.model(data)
 
                 # sum up batch loss
-                loss, preds = criterion.ImgLvlClassLoss(output, target)
+                loss, preds = self.criterion.ImgLvlClassLoss(output, target)
 
 
                 test_loss += torch.sum(loss)
@@ -187,26 +190,25 @@ class Trainer():
                 correct += pred.eq(target.data.view_as(pred)).cpu().sum()
 
 
-            test_loss /= len(testloader.dataset)
-            test_acc = 100. * correct / len(testloader.dataset)
+            test_loss /= len(self.testloader.dataset)
+            test_acc = 100. * correct / len(self.testloader.dataset)
             test_acc = test_acc.item()
             test_loss = test_loss.item()
 
             
             result = '\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.3f}%)\n'.format(
-                test_loss, correct, len(testloader.dataset), test_acc)
+                test_loss, correct, len(self.testloader.dataset), test_acc)
             print(result)
-            if test_acc > 95:
-                print(f"save best model with accuracy {test_acc}")
-                torch.save(model.state_dict(), 'checkpoint/' +'epoch' +str(int(epoch)) + f'-acc{test_acc}' + f'-{int(time.time())}.pt')
-            if epoch % 10 == 0:
-                with open('result/result.txt', 'a') as f:
-                    f.write(result)
-                f.close()
+            # if test_acc > 95:
+            #     print(f"save best model with accuracy {test_acc}")
+            #     torch.save(self.model.state_dict(), 'checkpoint/' +'epoch' +str(int(epoch)) + f'-acc{test_acc}' + f'-{int(time.time())}.pt')
+            # # if epoch % 10 == 0:
+            #     with open('result/result.txt', 'a') as f:
+            #         f.write(result)
 
-            with open('result/test_acc.txt', 'a') as f:
-                f.write(str(test_acc) + ',')
-            f.close()
-            with open('result/test_loss.txt', 'a') as f:
-                f.write(str(test_loss) + ',')
-            f.close()
+            # with open('result/test_acc.txt', 'a') as f:
+            #     f.write(str(test_acc) + ',')
+            
+            # with open('result/test_loss.txt', 'a') as f:
+            #     f.write(str(test_loss) + ',')
+            
