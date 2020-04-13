@@ -30,13 +30,17 @@ def main(config):
 
     ## dataloader
     train_dataset = ImageDataset(
-        'image_path_folder/train_image_list_sorted.txt', 'image_path_folder/train_image_label_sorted.txt', is_training=True)
+        'image_path_folder/train_image_list_sorted.txt', 
+        'image_path_folder/train_image_label_sorted.txt', 
+        is_training=True, temporal_coherence=True)
     test_dataset = ImageDataset(
-        'image_path_folder/test_image_list_sorted.txt', 'image_path_folder/test_image_label_sorted.txt', is_training=False)
+        'image_path_folder/test_image_list_sorted.txt', 
+        'image_path_folder/test_image_label_sorted.txt', 
+        is_training=False)
 
     ## network
     print("BackBone: ResNet18")
-    net = ResNet(num_classes=train_dataset.num_classes)
+    net = ResNet(num_classes=train_dataset.num_classes, pretrained=config.get('pretrained', True))
 
     ## optimizer
     optimizer = torch.optim.SGD(net.parameters(), lr=LEARNING_RATE, momentum=0.9, weight_decay=WEIGHT_DECAY)
@@ -44,8 +48,12 @@ def main(config):
     ## loss
     criterion = TCLoss(num_classes=train_dataset.num_classes)
 
+    ## logger
+    logfname = os.path.join(config["log_folder"], "info.log")
+    logger = SimpleLogger(logfname, 'debug')
+
     ## train-test loop
-    trainer = Trainer(net, optimizer, None, criterion, train_dataset, test_dataset, config)
+    trainer = Trainer(net, optimizer, None, criterion, train_dataset, test_dataset, logger, config)
     trainer.train(EPOCH, do_validation=True)
 
 
@@ -93,7 +101,5 @@ if __name__ == '__main__':
     
     if args.comment is not None:
         config.set_content('comment', args.comment)
-
-    print(config)
 
     main(config=config.get_config_parameters())

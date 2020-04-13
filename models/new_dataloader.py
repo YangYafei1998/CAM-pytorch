@@ -23,11 +23,11 @@ import cv2
 
 ## Load images concated by flow and rgb images
 class ImageDataset():
-    def __init__(self, image_path_file, image_label_file, is_training=True):
+    def __init__(self, image_path_file, image_label_file, is_training=True, temporal_coherence=False):
         
         self.is_training = is_training
+        self.temporal_coherence = temporal_coherence
 
-        image_path_file
         def file_getlines(filepath):
             with open(filepath) as fp:
                 line_list = []
@@ -48,6 +48,7 @@ class ImageDataset():
 
         if is_training:
             self.data_transforms = transforms.Compose([
+                transforms.Resize(256),
                 transforms.RandomResizedCrop(224),
                 transforms.ToTensor(),
                 normalize
@@ -82,29 +83,69 @@ class ImageDataset():
 
         self.num_classes =len(np.unique(self.image_labels))
 
-    def __getitem__(self, idx):
+    ## original
+    def __getitem__(self, index):
+        if self.temporal_coherence:
+            return self.__getitem__coherence(index)
+        else:
+            return self.__getitem__original(index)
+
+    def __getitem__original(self, idx):
         img_path, img_target = self.image_files[idx], self.image_labels[idx]
         img_target = torch.tensor(int(img_target)).type(torch.LongTensor)
         image = Image.open(img_path)
         if self.data_transforms is None:
+            image = transforms.ToTensor(image),
             return image, img_target, idx
         else:
             image_aug = self.data_transforms(image)
             return image_aug, img_target, idx
+
+    ## for temporal coherence
+    def __getitem__coherence(self, index):
+        
+        indices = [index, index, index]
+        if index > 0:
+            indices[0] = index-1
+        if index < len(self.image_files)-1:
+            indices[-1] = index+1
+
+        images_aug, img_targets = [], []
+        for idx in indices:
+            img_path, img_target = self.image_files[idx], self.image_labels[idx]
+            img_targets.append(torch.tensor(int(img_target)).type(torch.LongTensor))
+            image = Image.open(img_path)
+            images_aug.append(self.data_transforms(image))
+
+
+        img_targets = torch.stack(img_targets, dim=0)
+        # print(img_targets.shape)
+        images_aug = torch.stack(images_aug, dim=0)
+        # print(images_aug.shape)
+        # input()
+        return images_aug, img_targets, indices
 
     def get_data_with_idx(self, indices):
         batch_imgs=[]
         batch_targets=[]
         for idx in indices: 
             image_aug, img_target, _ = self.__getitem__(idx)
-            batch_targets.append(img_target)
-            batch_imgs.append(np.asarray(image_aug))
+            # batch_targets.append(img_target)
+            # batch_imgs.append(np.asarray(image_aug))
+            batch_targets.append(torch.LongTensor(img_target))
+            batch_imgs.append(torch.FloatTensor(image_aug))
         
-        # to torch
-        batch_targets = np.asarray(batch_targets)
-        batch_targets = torch.from_numpy(batch_targets)
-        batch_imgs = torch.FloatTensor(batch_imgs)
+        # # to torch
+        # batch_targets = np.asarray(batch_targets)
+        # batch_targets = torch.from_numpy(batch_targets)
+        # batch_imgs = torch.FloatTensor(batch_imgs)
         return batch_imgs, batch_targets
+
+    def get_fname(self, indices):
+        batch_fnames=[]
+        for idx in indices:
+            batch_fnames.append(self.image_files[idx])
+        return batch_fnames
 
     def __len__(self):
         return len(self.image_files)

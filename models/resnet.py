@@ -168,10 +168,12 @@ class ProposalNet(nn.Module):
         
 class ResNet(nn.Module):
 
-    def __init__(self, num_classes):
+    def __init__(self, num_classes, pretrained=True):
         super(ResNet, self).__init__()    
         
-        basemodel = models.resnet18(pretrained=True)
+        basemodel = models.resnet18(pretrained=pretrained)
+        # print(basemodel)
+
         self.features = nn.Sequential(
             basemodel.conv1,
             basemodel.bn1,
@@ -186,7 +188,6 @@ class ResNet(nn.Module):
         num_features = basemodel.fc.in_features
         self.drop = nn.Dropout2d(0.5)
         self.classifier = nn.Linear(num_features, num_classes)
-        
     
     def forward(self, x):
         x = self.features(x)

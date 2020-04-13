@@ -1,4 +1,5 @@
 from collections import OrderedDict
+import collections
 import os
 import numpy as np
 import torch
@@ -20,7 +21,7 @@ class SimpleLogger():
         self.handle.close()
 
     def info(self, content, auto_flush=True, auto_endline=False):
-        if isinstance(content, OrderedDict):
+        if isinstance(content, collections.Mapping):
             self.log_ordered_dict(content, auto_flush=auto_flush, auto_endline=auto_endline)
         elif isinstance(content, str):
             self._write_str(content, auto_flush=auto_flush, auto_endline=auto_endline )
@@ -28,14 +29,14 @@ class SimpleLogger():
             self.log_iterable(content, auto_flush=auto_flush, auto_endline=auto_endline)
 
 
-    def _write_str(self, str, auto_flush=True, auto_endline=False):
-        self.handle.write(str)
+    def _write_str(self, str_line, auto_flush=True, auto_endline=False):
+        self.handle.write(str_line)
         if auto_endline:
             self.handle.write("\n")
         if auto_flush:
             self.handle.flush()
         if self.verbosity == "debug":
-            print(str)
+            print(str_line.strip())
 
     def log_ordered_dict(self, ordered_dict, auto_flush=True, auto_endline=False):
         for k, v in ordered_dict.items():

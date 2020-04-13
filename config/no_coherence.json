@@ -1,13 +1,14 @@
 {
     "device": 0,
-    "max_epoch": 50,
+    "max_epoch": 51,
     "seed": 0,
     "disable_workers": false,
-    "batch_size": 8,
+    "batch_size": 32,
     "saved": "saved/",
     "board": "runs/",
     "ckpt_save_period": 10,
     "learning_rate": 0.001,
-    "weight_decay": 0.0005,
-    "temp_consistency_weight": 0.05
+    "weight_decay": 0.0,
+    "temp_consistency_weight": 0.0,
+    "pretrained": false
 }

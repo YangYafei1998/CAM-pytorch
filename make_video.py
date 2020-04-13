@@ -1,0 +1,43 @@
+import os
+import cv2
+import numpy as np
+import glob
+
+extensions = ('.jpg', '.jpeg')
+
+def write_video_from_images(pathIn, videoName):
+    frame_array = []
+    files = [f for f in os.listdir(pathIn) if os.path.isfile(os.path.join(pathIn, f))]
+    # for sorting the file names properly
+    files.sort(key=lambda x: x[5:-4])
+    files.sort()
+    size = (0, 0)
+    for filename in files:
+        # skip files other than images
+        if not filename.lower().endswith(extensions):
+            continue
+
+        # print(filename)
+        img = cv2.imread(os.path.join(pathIn,filename))
+        height, width, layers = img.shape
+        size = (width, height)
+        #text = filename
+        #write_text_to_img(img, text)
+        frame_array.append(img)
+
+    print(size)
+    print(videoName)
+    out = cv2.VideoWriter(videoName, cv2.VideoWriter_fourcc(*'DIVX'), 10, size)
+    for i in range(len(frame_array)):
+        out.write(frame_array[i])
+
+    out.release()
+    print("finishing writing the video")
+
+if __name__ == '__main__':
+    config_name = 'no_coherence'
+    timestamp = '2020-04-14_00-23-28'
+    epoch_idx = 30
+    img_folder = os.path.join('saved', config_name, timestamp, 'result', f"epoch{epoch_idx}")
+    videoname = f'video_{config_name}_{timestamp}_epoch{epoch_idx}.avi'
+    write_video_from_images( img_folder, videoname)

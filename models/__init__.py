@@ -1,3 +1,4 @@
-from .mobilenet import MobileNetV2, TCLoss
-from .data_loader import LoadImageData
+from .mobilenet import MobileNetV2
+# from .data_loader import LoadImageData
 from .resnet import ResNet
+from .loss import TCLoss
