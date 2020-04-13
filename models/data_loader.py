@@ -16,7 +16,7 @@ import sys
 
 from torchvision import datasets, transforms, utils
 
-import albumentations as A
+# import albumentations as A
 import random
 import cv2
 '''
@@ -55,6 +55,7 @@ def make_dataset(dir, class_to_idx, extensions):
                     path = os.path.join(root, fname)
                     if is_valid_file(path):
                         item = (fname, path, class_to_idx[target])
+                        ## item = (path, class_to_idx[target]) ## should it be?
                         image_list.append(item)
     else:
         for root, _, fnames in os.walk(dir):
@@ -69,9 +70,8 @@ def make_dataset(dir, class_to_idx, extensions):
     sorted_images = []
     for c in image_list: sorted_images.append(c[1:])
     # print(sorted_images)
-    
-    
     return sorted_images
+    
 
 def loader(path):
     with open(path, 'rb') as f:

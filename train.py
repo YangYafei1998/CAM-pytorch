@@ -4,71 +4,83 @@ import numpy as np
 
 from torch.autograd import Variable
 import tqdm
-torch.manual_seed(0)
+# torch.manual_seed(0)
 
-def train(trainloader, model, use_cuda, epoch, num_epochs, criterion, optimizer, time_consistency = True):
+def train(trainloader, model, device, epoch, num_epochs, criterion, optimizer, time_consistency):
     if time_consistency:
         print("Build with time coherence loss")
     else:
         print("Build with only classification loss")
-    
+
     model.train()
     correct, total = 0, 0
     acc_sum, loss_sum = 0, 0
     cls_sum, temp_sum = 0, 0
-    i = 0
     print('Epoch {}/{}'.format(epoch, num_epochs - 1))
-    for data, target, idx in tqdm.tqdm(trainloader, total=len(trainloader),desc='train'+': ', ncols=80, leave=False):
-        if use_cuda:
-            data, target = data.cuda(), target.cuda()
+    i = 0
+    for batch_idx, batch in tqdm.tqdm(enumerate(trainloader), total=len(trainloader),desc='train'+': ', ncols=80, leave=False):
+        data, target, idx = batch
+        data, target = data.to(device), target.to(device)
         data, target = Variable(data), Variable(target)
         optimizer.zero_grad()
         with torch.set_grad_enabled(True):
             output = model(data)
+            
             # calculate accuracy
             correct += (torch.max(output, 1)[1].view(target.size()).data == target.data).sum()
             total += trainloader.batch_size
             # total += 32
             train_acc = 100. * correct / total
+            # print(train_acc)
             acc_sum += train_acc
+            
             i += 1
             loss, preds = criterion.ImgLvlClassLoss(output, target)
+            cls_loss = loss
 
-            temp_loss = 0.0
-
-            
-            if time_consistency:
+            temp_loss = 0.0            
+            if time_consistency > 0.0:
                 idx_prev = torch.max(idx-1, torch.tensor(0))
                 idx_next = torch.min(idx+1, torch.tensor(len(trainloader.dataset)-1))
 
                 inputs_prev, target_prev = trainloader.dataset.get_data_with_idx(idx_prev)
                 inputs_next, target_next = trainloader.dataset.get_data_with_idx(idx_next)
 
-                device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
                 outputs_prev = model(inputs_prev.to(device, dtype=torch.float))
                 outputs_next = model(inputs_next.to(device, dtype=torch.float))
                                                 
                 temp_loss = criterion.TemporalConsistencyLoss(output, outputs_prev, outputs_next)
+                loss = loss + time_consistency * temp_loss
 
-            cls_loss = loss
-            loss = loss + 0.5 * temp_loss
+            ## backward
             loss.backward()
             optimizer.step()
-            loss = torch.sum(loss)
+            # loss = torch.sum(loss)
+
+            ## recording
             loss_sum += loss.item()
             if time_consistency:
                 cls_sum += cls_loss.item()
                 temp_sum +=  temp_loss.item()
-        acc_avg = acc_sum.item() / i
-        loss_avg = loss_sum / len(trainloader.dataset)
-        cls_loss_avg = cls_sum / len(trainloader.dataset)
-        temp_loss_avg = temp_sum / len(trainloader.dataset)
+
+    acc_avg = acc_sum.item() / i
+    loss_avg = loss_sum / len(trainloader.dataset)
+    cls_loss_avg = cls_sum / len(trainloader.dataset)
+    temp_loss_avg = temp_sum / len(trainloader.dataset)
         
     print()
     print('Train Epoch: {}\tAverage Loss: {:.3f}\tAverage Accuracy: {:.3f}%'.format(epoch, loss_avg, acc_avg))
     if time_consistency:
         print('Train Epoch: {}\tClassification Loss: {:.3f}\tCoherence Loss: {:.3f}'.format(epoch, cls_loss_avg, temp_loss_avg))
 
+
+    # if epoch % 10 == 0:
+    #     if not os.path.exists('checkpoint'):
+    #         os.mkdir('checkpoint')
+    #     torch.save(model.state_dict(), 'checkpoint/' +'epoch' +str(int(epoch)) + f'-acc{acc_avg}' + f'-{int(time.time())}.pt')
+        
+    
+    ## original code section 
     with open(f'result/train_acc.txt', 'a') as f:
         f.write(str(acc_avg) + ",")
     f.close()

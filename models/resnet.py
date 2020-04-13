@@ -186,6 +186,7 @@ class ResNet(nn.Module):
         num_features = basemodel.fc.in_features
         self.drop = nn.Dropout2d(0.5)
         self.classifier = nn.Linear(num_features, num_classes)
+        
     
     def forward(self, x):
         x = self.features(x)
