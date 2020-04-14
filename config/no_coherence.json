@@ -8,7 +8,7 @@
     "board": "runs/",
     "ckpt_save_period": 10,
     "learning_rate": 0.001,
-    "weight_decay": 0.0,
+    "weight_decay": 0.0005,
     "temp_consistency_weight": 0.0,
-    "pretrained": false
+    "pretrained": true
 }

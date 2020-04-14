@@ -9,6 +9,7 @@ import collections
 from utils.cam_drawer import CAMDrawer
 
 from utils.logger import AverageMeter
+from make_video import *
 
 # hook the feature extractor
 final_conv=''
@@ -140,6 +141,7 @@ class Trainer():
             self.max_epoch = max_epoch
 
         # self.test_one_epoch(0)
+        # input()
 
         for epoch in range(max_epoch):
             ## training
@@ -151,6 +153,10 @@ class Trainer():
             self.logger.info(log)
             self.logger.info(' ') ## spacing
             
+            ## call after the optimizer
+            if self.lr_scheduler is not None:
+                self.lr_scheduler.step()
+
             ## testing
             test_log = self.test_one_epoch(epoch)
             self.logger.info('Testing Epoch {}/{}\n'.format(epoch, self.max_epoch - 1))
@@ -189,6 +195,22 @@ class Trainer():
             leave=False):
         # for batch_idx, batch in enumerate(self.trainloader):
             data, target, idx = batch
+
+            # for confusion_idx in range(3, 6):
+            #     target_cofusion = target==confusion_idx
+            #     target_replace = torch.randn(torch.sum(target_cofusion))
+            #     if confusion_idx == 3:
+            #         target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([2]))
+            #         target[target_cofusion] = target_replace
+            #     elif confusion_idx == 4:
+            #         target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([1]))
+            #         target[target_cofusion] = target_replace
+            #     elif confusion_idx == 5:
+            #         target_replace = torch.where(target_replace>0, torch.tensor([1]), torch.tensor([2]))
+            #         target[target_cofusion] = target_replace
+            # assert torch.sum(target==0)+torch.sum(target==1)+torch.sum(target==2) == target.numel()
+
+            # print(target)
             data, target = data.to(self.device), target.to(self.device)
             data, target = Variable(data), Variable(target)
             self.optimizer.zero_grad()
@@ -206,22 +228,11 @@ class Trainer():
                 # print(train_acc)
                 acc_sum += train_acc
                 
-                loss, preds = self.criterion.ImgLvlClassLoss(output, target)
-                cls_loss = loss
+                loss, preds = self.criterion.ImgLvlClassLoss(output, target,reduction='none')
+                cls_loss = loss.sum()
 
-                temp_loss = 0.0            
-                if self.time_consistency:
-                    idx_prev = torch.max(idx-1, torch.tensor(0))
-                    idx_next = torch.min(idx+1, torch.tensor(len(self.trainloader.dataset)-1))
-
-                    inputs_prev, target_prev = self.trainloader.dataset.get_data_with_idx(idx_prev)
-                    inputs_next, target_next = self.trainloader.dataset.get_data_with_idx(idx_next)
-
-                    outputs_prev = self.model(inputs_prev.to(self.device, dtype=torch.float))
-                    outputs_next = self.model(inputs_next.to(self.device, dtype=torch.float))
-                                                    
-                    temp_loss = self.criterion.TemporalConsistencyLoss(output, outputs_prev, outputs_next)
-                    loss = loss + self.consistency_weight * temp_loss
+                weights = self.criterion.ComputeEntropyAsWeight(output)
+                loss = (loss * (weights**2) + (1-weights)**2).sum()
 
                 ## backward
                 loss.backward()
@@ -285,6 +296,21 @@ class Trainer():
             leave=False):
         # for batch_idx, batch in enumerate(self.trainloader):
             data, target, idx = batch
+
+            for confusion_idx in range(3, 6):
+                target_cofusion = target==confusion_idx
+                target_replace = torch.randn(torch.sum(target_cofusion))
+                if confusion_idx == 3:
+                    target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([2]))
+                    target[target_cofusion] = target_replace
+                elif confusion_idx == 4:
+                    target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([1]))
+                    target[target_cofusion] = target_replace
+                elif confusion_idx == 5:
+                    target_replace = torch.where(target_replace>0, torch.tensor([1]), torch.tensor([2]))
+                    target[target_cofusion] = target_replace
+            assert torch.sum(target==0)+torch.sum(target==1)+torch.sum(target==2) == target.numel()
+
             data, target = data.to(self.device), target.to(self.device)
             data, target = Variable(data), Variable(target)
             self.optimizer.zero_grad()
@@ -300,20 +326,23 @@ class Trainer():
                 correct += (torch.max(output, 1)[1].view(target.size()).data == target.data).sum()
                 total += self.trainloader.batch_size
                 # total += 32
-                train_acc = 100. * correct / total
+                train_acc = 100. * correct / (total*3)
                 # print(train_acc)
                 acc_sum += train_acc
                 
-                loss, preds = self.criterion.ImgLvlClassLoss(output, target)
-                cls_loss = loss
+                loss, preds = self.criterion.ImgLvlClassLoss(output, target,reduction='none')
+                cls_loss = loss.sum()
 
+                weights = self.criterion.ComputeEntropyAsWeight(output)
+                
                 ## temporal coherence loss
                 D = output.shape[1]
                 output = output.view(B, 3, D) ## [B*3, D] --> [B, 3, D]
                 temp_loss = self.criterion.TemporalConsistencyLoss(output[:, 1, :], output[:, 0, :], output[:, 2, :])
-                loss = loss + self.consistency_weight * temp_loss
+                loss = (loss + self.consistency_weight * temp_loss) * (weights**2) + (1-weights)**2
 
                 ## backward
+                loss = loss.sum()
                 loss.backward()
                 self.optimizer.step()
                 # loss = torch.sum(loss)
@@ -369,9 +398,26 @@ class Trainer():
             if self.draw_cams:
                 params = list(self.model.parameters())
                 weight_softmax = np.squeeze(params[-2].data.cpu().numpy())
+                print("saving CAMs")
 
             for batch_idx, batch in enumerate(self.testloader):
                 data, target, idx = batch
+
+                for confusion_idx in range(3, 6):
+                    target_cofusion = target==confusion_idx
+                    target_replace = torch.randn(torch.sum(target_cofusion))
+                    if confusion_idx == 3:
+                        target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([2]))
+                        target[target_cofusion] = target_replace
+                    elif confusion_idx == 4:
+                        target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([1]))
+                        target[target_cofusion] = target_replace
+                    elif confusion_idx == 5:
+                        target_replace = torch.where(target_replace>0, torch.tensor([1]), torch.tensor([2]))
+                        target[target_cofusion] = target_replace
+                assert torch.sum(target==0)+torch.sum(target==1)+torch.sum(target==2) == target.numel()
+
+
                 data, target = data.to(self.device), target.to(self.device)
                 data, target = Variable(data), Variable(target)
                 output = self.model(data)
@@ -381,17 +427,25 @@ class Trainer():
 
                 # sum up batch loss
                 loss, preds = self.criterion.ImgLvlClassLoss(output, target)
-
+                
                 # test_loss += torch.sum(loss)
                 test_loss += loss
                 # get the index of the max log-probability
                 pred = output.data.max(1, keepdim=True)[1]
-    
+
                 correct += pred.eq(target.data.view_as(pred)).cpu().sum()
 
-                if self.draw_cams and epoch % 10 == 0:
+                if self.draw_cams and epoch % self.save_period == 0:
                     img_path = self.testloader.dataset.get_fname(idx)
                     self.drawer.draw_cam(epoch, output, weight_softmax, features_blobs, img_path[0])
+            
+            if True and epoch % self.save_period == 0:
+                timestamp = self.result_folder.split(os.sep)[-2]
+                cam_path = os.path.join(self.result_folder, f"epoch{epoch}")
+                videoname = f'video_epoch{epoch}_{timestamp}.avi'
+                videoname = os.path.join(cam_path, videoname)
+                write_video_from_images(cam_path, videoname)
+                clear_folder(cam_path, exts='.jpg')
 
             test_loss /= len(self.testloader)
             test_acc = 100. * correct / len(self.testloader.dataset)

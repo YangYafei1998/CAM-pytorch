@@ -12,7 +12,7 @@ import torchvision.models as models
 from PIL import Image
 import glob
 from models.new_dataloader import ImageDataset
-from models import MobileNetV2, TCLoss, ResNet
+from models import MobileNetV2, TCLoss, ResNet, ResNetNew
 
 from trainer import Trainer
 from utils.config import ConfigParser
@@ -28,32 +28,48 @@ def main(config):
     WEIGHT_DECAY = config['weight_decay']
     EPOCH = config['max_epoch']
 
-    ## dataloader
+    # ## dataset
+    # train_dataset = ImageDataset(
+    #     'image_path_folder/train_image_list_sorted.txt', 
+    #     'image_path_folder/train_image_label_sorted.txt', 
+    #     is_training=True, temporal_coherence=True)
+    # test_dataset = ImageDataset(
+    #     'image_path_folder/test_image_list_sorted.txt', 
+    #     'image_path_folder/test_image_label_sorted.txt', 
+    #     is_training=False)
+
+    ## dataset for 6 classes
     train_dataset = ImageDataset(
-        'image_path_folder/train_image_list_sorted.txt', 
-        'image_path_folder/train_image_label_sorted.txt', 
+        'image_path_folder_6/train_image_list_sorted_6.txt', 
+        'image_path_folder_6/train_image_label_sorted_6.txt', 
         is_training=True, temporal_coherence=True)
+
     test_dataset = ImageDataset(
         'image_path_folder/test_image_list_sorted.txt', 
         'image_path_folder/test_image_label_sorted.txt', 
         is_training=False)
 
     ## network
-    print("BackBone: ResNet18")
-    net = ResNet(num_classes=train_dataset.num_classes, pretrained=config.get('pretrained', True))
+    # print("BackBone: ResNet18")
+    # net = ResNet(num_classes=3, pretrained=config.get('pretrained', True))
+    
+    print("BackBone: ResNet50")
+    net = ResNetNew(num_classes=3, pretrained=config.get('pretrained', True))
+
 
     ## optimizer
     optimizer = torch.optim.SGD(net.parameters(), lr=LEARNING_RATE, momentum=0.9, weight_decay=WEIGHT_DECAY)
-
+    scheduler  = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[5, 25], gamma=0.1)
+    
     ## loss
-    criterion = TCLoss(num_classes=train_dataset.num_classes)
+    criterion = TCLoss(num_classes=3)
 
     ## logger
     logfname = os.path.join(config["log_folder"], "info.log")
     logger = SimpleLogger(logfname, 'debug')
 
     ## train-test loop
-    trainer = Trainer(net, optimizer, None, criterion, train_dataset, test_dataset, logger, config)
+    trainer = Trainer(net, optimizer, scheduler, criterion, train_dataset, test_dataset, logger, config)
     trainer.train(EPOCH, do_validation=True)
 
 

@@ -33,19 +33,19 @@ class TCLoss(nn.Module):
         #print('t_loss_prev: {}, t_loss_next: {}'.format(t_loss_prev, t_loss_next))
         return t_loss_prev + t_loss_next
     
-    def ImgLvlClassLoss(self, inputs, targets):
+    def ImgLvlClassLoss(self, inputs, targets,reduction='mean'):
         # 
-        cls_loss = nn.functional.cross_entropy(inputs, targets)
+        cls_loss = nn.functional.cross_entropy(inputs, targets, reduction=reduction)
         _, preds = torch.max(inputs, 1)
         return cls_loss, preds
     
-    # def ComputeEntropyAsWeight(self, inputs):
-    #     entropies = F.softmax(inputs, dim=1) * F.log_softmax(inputs, dim=1)
-    #     entropies = -1.0*torch.sum(entropies, dim=1)
-    #     # entropy high -> confidence low -> weight low
-    #     weights = 1.0 - entropies/self.max_ent
-    #     return weights 
-    
+    def ComputeEntropyAsWeight(self, inputs):
+        entropies = F.softmax(inputs, dim=1) * F.log_softmax(inputs, dim=1)
+        entropies = -1.0*torch.sum(entropies, dim=1)
+        # entropy high -> confidence low -> weight low
+        weights = 1.0 - entropies/self.max_ent
+        return weights 
+
     # def PerLocClassLoss(self, inputs, targets):
     #     # size of input
     #     n, c, h, w = inputs.size()

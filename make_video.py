@@ -5,6 +5,20 @@ import glob
 
 extensions = ('.jpg', '.jpeg')
 
+def clear_folder(pathIn, exts=None):
+    print('clear jpg files')
+    if exts is None:
+        print(f"remove {extensions}")
+        exts = extensions
+
+    files = [
+        os.path.join(pathIn, f) for f in os.listdir(pathIn) 
+        if os.path.isfile(os.path.join(pathIn, f)) and f.lower().endswith(exts)
+        ]
+
+    for f in files:
+        os.remove(f)
+
 def write_video_from_images(pathIn, videoName):
     frame_array = []
     files = [f for f in os.listdir(pathIn) if os.path.isfile(os.path.join(pathIn, f))]
@@ -35,9 +49,9 @@ def write_video_from_images(pathIn, videoName):
     print("finishing writing the video")
 
 if __name__ == '__main__':
-    config_name = 'no_coherence'
-    timestamp = '2020-04-14_00-23-28'
-    epoch_idx = 30
+    config_name = 'coherence'
+    timestamp = '2020-04-14_15-06-56'
+    epoch_idx = 10
     img_folder = os.path.join('saved', config_name, timestamp, 'result', f"epoch{epoch_idx}")
     videoname = f'video_{config_name}_{timestamp}_epoch{epoch_idx}.avi'
     write_video_from_images( img_folder, videoname)
