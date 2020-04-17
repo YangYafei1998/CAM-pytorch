@@ -50,6 +50,16 @@ class TCLoss(nn.Module):
         loss = prob_0 - prob_1 + margin
         return torch.clamp(loss, max=0.0)
 
+    def MarginLoss(self, prob, target, positive_margin, negative_margin):
+        target_ = torch.FloatTensor(target.shape[0], self.num_classes)
+        target_.zero_()
+        target_.scatter_(1, target, 1)
+
+        positive_loss = target_ * torch.clamp(positive_margin-probs, max=0.0)**2
+        negative_loss = (1-target_) * torch.clamp(probs-negative_margin, max=0.0)**2
+
+        return positive_loss.mean() + negative_loss.mean()
+
     # def PerLocClassLoss(self, inputs, targets):
     #     # size of input
     #     n, c, h, w = inputs.size()

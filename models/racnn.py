@@ -100,6 +100,16 @@ class RACNN(nn.Module):
             nn.Sigmoid()
             )
 
+        ## attention proposal head between scales 0 and 1
+        self.apn_map_scale_01 = nn.Sequential(
+            nn.Conv2d(512, 256, kernel_size=3, bias=False),
+            nn.Conv2d(256, 128, kernel_size=3, bias=False),
+            nn.Conv2d(128, 128, kernel_size=1, bias=False),
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(128, 3, bias=False),
+            nn.Sigmoid()
+            )
+
         ## print the network architecture
         print(self)
     
@@ -120,7 +130,7 @@ class RACNN(nn.Module):
         x = self.drop(x)
         # print(x.shape)
         shift = torch.tensor([[0.5,0.5,0.0]]).to(x.device)
-        scale = torch.tensor([[2.0,2.0,0.7]]).to(x.device)
+        scale = torch.tensor([[1.0,1.0,0.7]]).to(x.device)
         if lvl == 0:
             t = self.apn_scale_01(x.squeeze(2).squeeze(2))
             # shift the sigmoid output to ( [-1,1], [-1,1], [0,0.7] ) 
@@ -129,8 +139,17 @@ class RACNN(nn.Module):
         else:
             raise NotImplementedError
         
-    def forward(self, x):
+    def forward(self, x, train_config=-1):
         
+        # alternating between two modes
+        if train_config == 1:
+            self.freeze_network(self.conv_scale_0)
+            self.freeze_network(self.conv_scale_1)
+            self.freeze_network(self.classifier_0)
+            self.freeze_network(self.classifier_1)
+        elif train_config == 0:
+            self.freeze_network(self.apn_scale_01)
+            
         ## classification scale 1
         out_0, f_gap_0, f_conv0 = self.classification(x, lvl=0)
         ## zoom in
@@ -140,6 +159,8 @@ class RACNN(nn.Module):
         ## classification scale 2
         out_1, f_gap_1, f_conv1 = self.classification(x1, lvl=1)
 
-
         return out_0, out_1, t0
 
+    def freeze_network(self, module):
+        for p in module.parameters():
+            p.requires_grad = False

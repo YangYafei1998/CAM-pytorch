@@ -20,7 +20,7 @@ import shutil
 
 class RACNN_Trainer():
 
-    loss_config_list = {'classification', 'apn', 'whole'}
+    loss_config_list = {'classification':0, 'apn':1, 'whole':-1}
 
     def __init__(self, model, optimizer, lr_scheduler, criterion, train_dataset, test_dataset, logger, config):
         
@@ -146,9 +146,21 @@ class RACNN_Trainer():
             ## training
             self.logger.info(f"epoch {epoch}:")
             self.logger.info(f"Training:")
-            loss_config = self.loss_config
-            log = self.train_one_epoch(epoch, loss_config)
+
+           ##
+            self.logger.info(f"Both")
+            log = self.train_one_epoch(epoch)
             self.logger.info(log)
+
+            # ##
+            # self.logger.info(f"Classification")
+            # log = self.train_one_epoch(epoch, self.loss_config_list['classification'])
+            # self.logger.info(log)
+            
+            # ##
+            # self.logger.info(f"Apn")
+            # log = self.train_one_epoch(epoch, self.loss_config_list['apn'])
+            # self.logger.info(log)
             
             ## call after the optimizer
             if self.lr_scheduler is not None:
@@ -164,7 +176,7 @@ class RACNN_Trainer():
 
 
     ##
-    def train_one_epoch(self, epoch, loss_config):
+    def train_one_epoch(self, epoch, loss_config=-1):
         
         self.model.train()
 
@@ -203,7 +215,14 @@ class RACNN_Trainer():
             self.optimizer.zero_grad()
             with torch.set_grad_enabled(True):
                 # data [B, C, H, W]
-                out_0, out_1, t_01 = self.model(data) ## [B, NumClasses]
+                if loss_config == 'classification':
+                    out_0, out_1, t_01 = self.model(data, 0) ## [B, NumClasses]
+                elif loss_config == 'apn':
+                    out_0, out_1, t_01 = self.model(data, 1) ## [B, NumClasses]
+                else:
+                    ## whole
+                    out_0, out_1, t_01 = self.model(data, -1) ## [B, NumClasses]
+
 
                 ### Classification loss
                 cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
@@ -212,7 +231,8 @@ class RACNN_Trainer():
                 weights_0 = self.criterion.ComputeEntropyAsWeight(out_0)
                 weights_1 = self.criterion.ComputeEntropyAsWeight(out_1)
 
-                cls_loss = (cls_loss_0*(weights_0**2)+(1-weights_0)**2) + 0.5*(cls_loss_1*(weights_1**2)+(1-weights_1)**2)
+                # cls_loss = (cls_loss_0*(weights_0**2)+(1-weights_0)**2) + 0.3*(cls_loss_1*(weights_1**2)+(1-weights_1)**2)
+                cls_loss = cls_loss_0.sum() + cls_loss_1.sum()
                 cls_loss = cls_loss.sum()
 
                 ### Ranking loss
@@ -226,12 +246,12 @@ class RACNN_Trainer():
                 # print("gt_probs_1: ", gt_probs_1)
                 # print("rank_loss: ", rank_loss)
 
-                if loss_config == 'classification':
-                    loss = cls_loss + 0.1*rank_loss
-                elif loss_config == 'apn':
-                    loss = cls_loss + 0.1*loss
-                elif loss_config == 'whole':
-                    loss = rank_loss + cls_loss
+                # if loss_config == 0: ##'classification'
+                #     loss = cls_loss + 0.1*rank_loss
+                # elif loss_config == 1: ##'apn'
+                #     loss = 0.1*cls_loss + rank_loss
+                # else: ##'whole'
+                loss = rank_loss + cls_loss
 
                 loss.backward()
                 self.optimizer.step()
@@ -306,6 +326,7 @@ class RACNN_Trainer():
                 params_classifier_1 = list(self.model.classifier_1.parameters())
                 ## -2 because we have bias in the classifier
                 weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
+                # weight_softmax_1 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
                 weight_softmax_1 = np.squeeze(params_classifier_1[-2].data.cpu().numpy())
                 
                 # hook the feature extractor instantaneously and remove it once data is hooked
@@ -318,6 +339,7 @@ class RACNN_Trainer():
                     f_conv_1.append(output.data.cpu().numpy())
                 ## place hooker
                 h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
+                # h1 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_1)
                 h1 = self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
                 print("saving CAMs")
 
