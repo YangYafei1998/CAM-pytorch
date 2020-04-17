@@ -103,10 +103,12 @@ class RACNN(nn.Module):
         ## attention proposal head between scales 0 and 1
         self.apn_map_scale_01 = nn.Sequential(
             nn.Conv2d(512, 256, kernel_size=3, bias=False),
+            nn.Dropout2d(0.2),
             nn.Conv2d(256, 128, kernel_size=3, bias=False),
+            nn.Dropout2d(0.2),
             nn.Conv2d(128, 128, kernel_size=1, bias=False),
             nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(128, 3, bias=False),
+            nn.Conv2d(128, 3, kernel_size=1, bias=False),
             nn.Sigmoid()
             )
 
@@ -127,13 +129,14 @@ class RACNN(nn.Module):
             raise NotImplementedError
         
     def apn(self, x, lvl):
-        x = self.drop(x)
+        # x = self.drop(x)
         # print(x.shape)
-        shift = torch.tensor([[0.5,0.5,0.0]]).to(x.device)
-        scale = torch.tensor([[1.0,1.0,0.7]]).to(x.device)
+        shift = torch.tensor([[0.5,0.5,-0.5]]).to(x.device)
+        scale = torch.tensor([[1.0,1.0,0.6]]).to(x.device)
         if lvl == 0:
-            t = self.apn_scale_01(x.squeeze(2).squeeze(2))
-            # shift the sigmoid output to ( [-1,1], [-1,1], [0,0.7] ) 
+            # t = self.apn_scale_01(x.squeeze(2).squeeze(2))
+            t = self.apn_map_scale_01(x).squeeze(2).squeeze(2)
+            # shift the sigmoid output to ( [-0.5,0.5], [-0.5,0.5], [0,0.7] ) 
             t = (t-shift)*scale
             return t
         else:
@@ -153,7 +156,8 @@ class RACNN(nn.Module):
         ## classification scale 1
         out_0, f_gap_0, f_conv0 = self.classification(x, lvl=0)
         ## zoom in
-        t0 = self.apn(f_gap_0, lvl=0) ## [B, 3]
+        # t0 = self.apn(f_gap_0, lvl=0) ## [B, 3]
+        t0 = self.apn(f_conv0, lvl=0) ## [B, 3]
         grid = self.grid_sampler(t0) ## [B, H, W, 2]
         x1 = F.grid_sample(x, grid, align_corners=False) ## [B, 3, H, W] sampled using grid parameters
         ## classification scale 2
