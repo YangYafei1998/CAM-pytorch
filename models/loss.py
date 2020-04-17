@@ -46,6 +46,10 @@ class TCLoss(nn.Module):
         weights = 1.0 - entropies/self.max_ent
         return weights 
 
+    def PairwiseRankingLoss(self, prob_0, prob_1, margin):
+        loss = prob_0 - prob_1 + margin
+        return torch.clamp(loss, max=0.0)
+
     # def PerLocClassLoss(self, inputs, targets):
     #     # size of input
     #     n, c, h, w = inputs.size()

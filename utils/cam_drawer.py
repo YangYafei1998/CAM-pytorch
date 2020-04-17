@@ -72,26 +72,41 @@ def iou_box(boxA, boxB):
     # return the intersection over union value
     return iou
 
+def image_sampler(image, theta, out_w=256, out_h=256):
+    B, C, H, W = image.shape
+    grid_X, grid_Y = np.meshgrid(np.linspace(-1,1,out_w),np.linspace(-1,1,out_h))
+    grid_X = torch.Tensor(grid_X).unsqueeze(0).unsqueeze(3)
+    grid_Y = torch.Tensor(grid_Y).unsqueeze(0).unsqueeze(3)
+
+    theta = theta.unsqueeze(2).unsqueeze(3).unsqueeze(4)
+    trans_x, trans_y, uni_scale = theta[:, 0, ...], theta[:, 1, ...], theta[:, 2, ...]
+ 
+    ## grid
+    X = grid_X.repeat_interleave(B, dim=0)
+    Y = grid_Y.repeat_interleave(B, dim=0)
+    X = (X + trans_x)*uni_scale
+    Y = (Y + trans_y)*uni_scale
+    grid = torch.cat((X, Y), dim=-1)
+    return F.grid_sample(image, grid)
+    
 
 # generate class activation mapping for the top1 prediction
-def returnCAM(feature_conv, weight_softmax, class_idx):
+def returnCAM(feature_conv, weight_softmax):
     # generate the class activation maps upsample to 256x256
     size_upsample = (256, 256)
     bz, nc, h, w = feature_conv.shape
-    output_cam = []
-    for idx in class_idx:
-        cam = weight_softmax[idx].dot(feature_conv.reshape((nc, h*w)))
-        cam = cam.reshape(h, w)
-        cam = cam - np.min(cam)
-        cam_img = cam / np.max(cam)
-        cam_img = np.uint8(255 * cam_img)
-        output_cam.append(cv2.resize(cam_img, size_upsample))
-    return output_cam
+    # print(weight_softmax.shape)
+    cam = weight_softmax.dot(feature_conv.reshape((nc, h*w)))
+    cam = cam.reshape(h, w)
+    cam = cam - np.min(cam)
+    cam_img = cam / np.max(cam)
+    cam_img = np.uint8(255 * cam_img)
+    return cam_img
 
 
 class CAMDrawer():
     classes = ['C', 'H', 'P']
-    def __init__(self, save_folder, device=None, bar=0.8, classes=None):
+    def __init__(self, save_folder, img_width=256, img_height=256, device=None, bar=0.8, classes=None):
         if classes is not None:
             self.classes = classes
         if device is None:
@@ -101,29 +116,41 @@ class CAMDrawer():
 
         self.save_folder =save_folder
         self.bar = bar
+        self.W = img_width
+        self.H = img_height
         
 
-    def draw_cam(self, epoch, logit, weight_softmax, features_blobs, img_path, GT=None):
+    def draw_cam(self, epoch, prob, idx, weight_softmax, feature, img_path, theta=None, sub_folder=None, GT=None, logit=None):
         ## compute softmax probablity
-        save_folder = os.path.join(self.save_folder, f"epoch{epoch}")
+        save_folder = self.save_folder
+        if sub_folder is not None:
+            save_folder = os.path.join(save_folder, sub_folder)
+        save_folder = os.path.join(save_folder, f"epoch{epoch}")
         if not os.path.exists(save_folder):
-            os.mkdir(save_folder)
+            os.makedirs(save_folder)
 
-        h_x = F.softmax(logit, dim=1).data.squeeze()
-        probs, idx = h_x.sort(0, True)
+        # h_x = F.softmax(logit, dim=1).data.squeeze()
+        # probs, idx = h_x.sort(0, True)
         
         # render the CAM and output
-        img = cv2.imread(img_path)
+        img = cv2.imread(img_path, -1) ## [H, W, C]
+        if theta is not None:
+            img_tensor = torch.from_numpy(img).type(torch.FloatTensor).unsqueeze(0)
+            img_tensor = img_tensor.permute(0,3,1,2) ## [B, H, W, C] --> [B, C, H, W]
+            img_tensor = image_sampler(img_tensor, theta)
+            img = np.asarray(img_tensor.permute(0,2,3,1).squeeze(0)) ## [B, H, W, C] --> [H, W, C]
 
-        CAMs = returnCAM(features_blobs[-1], weight_softmax, [idx[0].item()])
         height, width, _ = img.shape
-        CAM = cv2.resize(CAMs[0], (width, height))
+        # CAMs = returnCAM(features_blobs[-1], weight_softmax, 0)
+        # CAM = cv2.resize(CAMs[0], (width, height))
+        CAM = returnCAM(feature, weight_softmax)
+        CAM = cv2.resize(CAM, (width, height))
         heatmap = cv2.applyColorMap(CAM, cv2.COLORMAP_JET)
 
         # get original image
         result = heatmap * 0.3 + img * 0.5
-        write_text_to_img(result, f"prediction: {self.classes[idx[0].item()]}", org=(30,50))
-        write_text_to_img(result, f"confidence: {probs[0].item():.2f}", org=(30,65))
+        write_text_to_img(result, f"prediction: {self.classes[idx]}", org=(30,50))
+        write_text_to_img(result, f"confidence: {prob.item():.2f}", org=(30,65))
         
         #generate bbox from CAM 
         prop = generate_bbox(CAM, self.bar)
@@ -163,6 +190,7 @@ class CAMDrawer():
 
         img_filename = os.path.basename(img_path)[:-4]
         output_img_path = os.path.join(save_folder, img_filename+'_'+self.classes[idx[0].item()]+'_cam.jpg')
+
         cv2.imwrite(output_img_path, result)
         # print(f"save cam to {output_img_path}")
         return

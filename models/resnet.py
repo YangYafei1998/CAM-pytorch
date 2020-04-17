@@ -238,10 +238,10 @@ class ResNetNew(nn.Module):
         
         self.conv_layer = nn.Sequential(
             nn.Conv2d(1024, 512, kernel_size=1, bias=False),
-            nn.BatchNorm2d(512),
+            # nn.BatchNorm2d(512),
             # nn.ReLU(inplace=True),
             nn.Conv2d(512, 512, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(512),
+            # nn.BatchNorm2d(512),
             nn.ReLU(inplace=True),
             )
         

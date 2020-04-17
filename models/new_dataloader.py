@@ -95,7 +95,7 @@ class ImageDataset():
         img_target = torch.tensor(int(img_target)).type(torch.LongTensor)
         image = Image.open(img_path)
         if self.data_transforms is None:
-            image = transforms.ToTensor(image),
+            image = transforms.ToTensor(image)
             return image, img_target, idx
         else:
             image_aug = self.data_transforms(image)

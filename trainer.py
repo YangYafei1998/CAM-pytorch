@@ -157,12 +157,12 @@ class Trainer():
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
 
-            ## testing
-            test_log = self.test_one_epoch(epoch)
-            self.logger.info('Testing Epoch {}/{}\n'.format(epoch, self.max_epoch - 1))
-            self.logger.info(test_log)
-            self.logger.info(' ') ## spacing
-            self.logger.info(' ') ## spacing
+            # ## testing
+            # test_log = self.test_one_epoch(epoch)
+            # self.logger.info('Testing Epoch {}/{}\n'.format(epoch, self.max_epoch - 1))
+            # self.logger.info(test_log)
+            # self.logger.info(' ') ## spacing
+            # self.logger.info(' ') ## spacing
 
             ## save
             if epoch % self.save_period == 0:

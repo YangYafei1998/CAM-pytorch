@@ -12,9 +12,9 @@ import torchvision.models as models
 from PIL import Image
 import glob
 from models.new_dataloader import ImageDataset
-from models import MobileNetV2, TCLoss, ResNet, ResNetNew
+from models import TCLoss, RACNN
 
-from trainer import Trainer
+from racnn_trainer import RACNN_Trainer
 from utils.config import ConfigParser
 from utils.logger import SimpleLogger
 
@@ -32,7 +32,7 @@ def main(config):
     train_dataset = ImageDataset(
         'image_path_folder/train_image_list_sorted.txt', 
         'image_path_folder/train_image_label_sorted.txt', 
-        is_training=True, temporal_coherence=True)
+        is_training=True, temporal_coherence=False)
     test_dataset = ImageDataset(
         'image_path_folder/test_image_list_sorted.txt', 
         'image_path_folder/test_image_label_sorted.txt', 
@@ -43,6 +43,7 @@ def main(config):
     #     'image_path_folder_6/train_image_list_sorted_6.txt', 
     #     'image_path_folder_6/train_image_label_sorted_6.txt', 
     #     is_training=True, temporal_coherence=True)
+
     # test_dataset = ImageDataset(
     #     'image_path_folder/test_image_list_sorted.txt', 
     #     'image_path_folder/test_image_label_sorted.txt', 
@@ -52,8 +53,14 @@ def main(config):
     # print("BackBone: ResNet18")
     # net = ResNet(num_classes=3, pretrained=config.get('pretrained', True))
     
-    print("BackBone: ResNet50")
-    net = ResNetNew(num_classes=3, pretrained=config.get('pretrained', True))
+    ## device
+    if config['device'] != -1:
+        cuda_id = f"cuda:{config['device']}"
+        device = torch.device(cuda_id)
+    else:
+        device = torch.device("cpu")
+    print("RACNN with ResNet50")
+    net = RACNN(num_classes=3, device=device)
 
 
     ## optimizer
@@ -68,7 +75,7 @@ def main(config):
     logger = SimpleLogger(logfname, 'debug')
 
     ## train-test loop
-    trainer = Trainer(net, optimizer, scheduler, criterion, train_dataset, test_dataset, logger, config)
+    trainer = RACNN_Trainer(net, optimizer, scheduler, criterion, train_dataset, test_dataset, logger, config)
     trainer.train(EPOCH, do_validation=True)
 
 
@@ -83,12 +90,6 @@ if __name__ == '__main__':
                         help='the size of each minibatch')
     parser.add_argument('--max_epoch', default=None, help='max epochs', type=int)
     
-    # parser.add_argument('--lr', default=0.001, type=float,
-    #                     help='the learning rate')
-    # parser.add_argument('--wd', default=0.0005, type=float,
-    #                     help='the weight decay')
-    # parser.add_argument('--time_consistency',  default=0.05, type=float,
-    #                     help='time consistency weight')
     parser.add_argument('--disable_workers', action="store_true")
     parser.add_argument('--comment', help="comments to the session", type=str)
     parser.add_argument('--config', default=None, type=str,
