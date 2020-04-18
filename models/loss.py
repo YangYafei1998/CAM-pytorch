@@ -48,7 +48,7 @@ class TCLoss(nn.Module):
 
     def PairwiseRankingLoss(self, prob_0, prob_1, margin):
         loss = prob_0 - prob_1 + margin
-        return torch.clamp(loss, max=0.0)
+        return torch.clamp(loss, min=0.0)
 
     def MarginLoss(self, prob, target, positive_margin, negative_margin):
         target_ = torch.FloatTensor(target.shape[0], self.num_classes)

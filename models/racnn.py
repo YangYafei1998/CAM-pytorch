@@ -92,25 +92,25 @@ class RACNN(nn.Module):
 
         ## attention proposal head between scales 0 and 1
         self.apn_scale_01 = nn.Sequential(
-            nn.Linear(512, 256, bias=False),
+            nn.Linear(512, 256, bias=True),
             nn.Dropout(0.2),
-            nn.Linear(256, 128, bias=False),
+            nn.Linear(256, 128, bias=True),
             nn.Dropout(0.2),
-            nn.Linear(128, 3, bias=False),
+            nn.Linear(128, 3, bias=True),
             nn.Sigmoid()
             )
 
         ## attention proposal head between scales 0 and 1
         self.apn_map_scale_01 = nn.Sequential(
-            nn.Conv2d(512, 256, kernel_size=3, bias=False),
-            nn.Dropout2d(0.2),
-            nn.Conv2d(256, 128, kernel_size=3, bias=False),
-            nn.Dropout2d(0.2),
-            nn.Conv2d(128, 128, kernel_size=1, bias=False),
-            nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(128, 3, kernel_size=1, bias=False),
-            nn.Sigmoid()
+            nn.Conv2d(512, 128, kernel_size=1, bias=False),
+            nn.Tanh(),
+            nn.Conv2d(128, 1, kernel_size=1, bias=False),
+            nn.Tanh(),
             )
+        self.apn_map_flatten_01 = nn.Sequential(
+            nn.Linear(14*14, 3, bias=True),
+            nn.Sigmoid()
+        ) 
 
         ## print the network architecture
         print(self)
@@ -128,16 +128,34 @@ class RACNN(nn.Module):
         else:
             raise NotImplementedError
         
-    def apn(self, x, lvl):
+    def apn(self, xgap, lvl):
         # x = self.drop(x)
         # print(x.shape)
-        shift = torch.tensor([[0.5,0.5,-0.5]]).to(x.device)
-        scale = torch.tensor([[1.0,1.0,0.6]]).to(x.device)
+        shift = torch.tensor([[0.5, 0.5, -0.5]]).to(xgap.device)
+        scale = torch.tensor([[1.0, 1.0, 0.4]]).to(xgap.device)
         if lvl == 0:
-            # t = self.apn_scale_01(x.squeeze(2).squeeze(2))
-            t = self.apn_map_scale_01(x).squeeze(2).squeeze(2)
+            t = self.apn_scale_01(xgap.squeeze(2).squeeze(2))
             # shift the sigmoid output to ( [-0.5,0.5], [-0.5,0.5], [0,0.7] ) 
             t = (t-shift)*scale
+            #print(t[0,...])
+            return t
+        else:
+            raise NotImplementedError
+            
+    def apn_map(self, xconv, target, lvl):
+        # x = self.drop(x)
+        # print(x.shape)
+        shift = torch.tensor([[0.5, 0.5, -0.5]]).to(xconv.device)
+        scale = torch.tensor([[1.0, 1.0, 0.4]]).to(xconv.device)
+        if lvl == 0:
+            xconv = self.apn_map_scale_01(xconv)
+            xconv = xconv.flatten(start_dim=1)
+            if target is not None:
+                xconv = torch.cat([xconv, target.type(torch.FloatTensor)], dim=-1)
+            t = self.apn_map_flatten_01(xconv)
+            # shift the sigmoid output to ( [-0.5,0.5], [-0.5,0.5], [0,0.7] ) 
+            t = (t-shift)*scale
+            #print(t[0,...])
             return t
         else:
             raise NotImplementedError
@@ -157,9 +175,9 @@ class RACNN(nn.Module):
         out_0, f_gap_0, f_conv0 = self.classification(x, lvl=0)
         ## zoom in
         # t0 = self.apn(f_gap_0, lvl=0) ## [B, 3]
-        t0 = self.apn(f_conv0, lvl=0) ## [B, 3]
+        t0 = self.apn_map(f_conv0, target=None, lvl=0) ## [B, 3]
         grid = self.grid_sampler(t0) ## [B, H, W, 2]
-        x1 = F.grid_sample(x, grid, align_corners=False) ## [B, 3, H, W] sampled using grid parameters
+        x1 = F.grid_sample(x, grid, align_corners=True) ## [B, 3, H, W] sampled using grid parameters
         ## classification scale 2
         out_1, f_gap_1, f_conv1 = self.classification(x1, lvl=1)
 

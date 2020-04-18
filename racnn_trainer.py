@@ -25,14 +25,12 @@ class RACNN_Trainer():
     def __init__(self, model, optimizer, lr_scheduler, criterion, train_dataset, test_dataset, logger, config):
         
         self.loss_config = 'whole'
-
+        self.margin = 0.2
+        
         ## 
         self.config = config
         self.logger = logger
         self.logger.info(config)
-
-        ## set seed
-        torch.manual_seed(config['seed'])
 
         ## get a savefolder here
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -195,19 +193,19 @@ class RACNN_Trainer():
         # for batch_idx, batch in enumerate(self.trainloader):
             data, target, idx = batch
 
-            # for confusion_idx in range(3, 6):
-            #     target_cofusion = target==confusion_idx
-            #     target_replace = torch.randn(torch.sum(target_cofusion))
-            #     if confusion_idx == 3:
-            #         target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([2]))
-            #         target[target_cofusion] = target_replace
-            #     elif confusion_idx == 4:
-            #         target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([1]))
-            #         target[target_cofusion] = target_replace
-            #     elif confusion_idx == 5:
-            #         target_replace = torch.where(target_replace>0, torch.tensor([1]), torch.tensor([2]))
-            #         target[target_cofusion] = target_replace
-            # assert torch.sum(target==0)+torch.sum(target==1)+torch.sum(target==2) == target.numel()
+            for confusion_idx in range(3, 6):
+                target_cofusion = target==confusion_idx
+                target_replace = torch.randn(torch.sum(target_cofusion))
+                if confusion_idx == 3:
+                    target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([2]))
+                    target[target_cofusion] = target_replace
+                elif confusion_idx == 4:
+                    target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([1]))
+                    target[target_cofusion] = target_replace
+                elif confusion_idx == 5:
+                    target_replace = torch.where(target_replace>0, torch.tensor([1]), torch.tensor([2]))
+                    target[target_cofusion] = target_replace
+            assert torch.sum(target==0)+torch.sum(target==1)+torch.sum(target==2) == target.numel()
 
             data, target = data.to(self.device), target.to(self.device)
             B = data.shape[0]
@@ -215,14 +213,17 @@ class RACNN_Trainer():
             self.optimizer.zero_grad()
             with torch.set_grad_enabled(True):
                 # data [B, C, H, W]
-                if loss_config == 'classification':
-                    out_0, out_1, t_01 = self.model(data, 0) ## [B, NumClasses]
-                elif loss_config == 'apn':
-                    out_0, out_1, t_01 = self.model(data, 1) ## [B, NumClasses]
-                else:
-                    ## whole
-                    out_0, out_1, t_01 = self.model(data, -1) ## [B, NumClasses]
-
+                # if loss_config == 'classification':
+                #    out_0, out_1, t_01 = self.model(data, 0) ## [B, NumClasses]
+                # elif loss_config == 'apn':
+                #    out_0, out_1, t_01 = self.model(data, 1) ## [B, NumClasses]
+                # else:
+                #    ## whole
+                #    out_0, out_1, t_01 = self.model(data, -1) ## [B, NumClasses]
+                out_0, out_1, t_01 = self.model(data, -1) ## [B, NumClasses]
+                
+                # print("theta: ", t_01)
+                
 
                 ### Classification loss
                 cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
@@ -240,7 +241,7 @@ class RACNN_Trainer():
                 probs_1 = F.softmax(out_1, dim=-1)
                 gt_probs_0 = probs_0[list(range(B)), target]
                 gt_probs_1 = probs_1[list(range(B)), target]
-                rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=0.02)
+                rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
                 rank_loss = rank_loss.sum()
                 # print("gt_probs_0: ", gt_probs_0)
                 # print("gt_probs_1: ", gt_probs_1)
@@ -251,7 +252,7 @@ class RACNN_Trainer():
                 # elif loss_config == 1: ##'apn'
                 #     loss = 0.1*cls_loss + rank_loss
                 # else: ##'whole'
-                loss = rank_loss + cls_loss
+                loss = 10.0*rank_loss + cls_loss
 
                 loss.backward()
                 self.optimizer.step()
@@ -296,6 +297,7 @@ class RACNN_Trainer():
                 ## data [B, C, H, W]
                 out_0, out_1, t_01 = self.model(data) ## [B, D]
                 # print("theta: ", t_01)
+
                 probs_0 = F.softmax(out_0, dim=-1)
                 probs_1 = F.softmax(out_1, dim=-1)
                 gt_probs_0 = probs_0[list(range(B)), target]
@@ -344,12 +346,13 @@ class RACNN_Trainer():
                 print("saving CAMs")
 
             
-            for batch_idx, batch in tqdm.tqdm(
-                enumerate(self.testloader), 
-                total=len(self.testloader),
-                desc='test'+': ', 
-                ncols=80, 
-                leave=False):
+            #for batch_idx, batch in tqdm.tqdm(
+            #    enumerate(self.testloader), 
+            #    total=len(self.testloader),
+            #    desc='test'+': ', 
+            #    ncols=80, 
+            #    leave=False):
+            for batch_idx, batch in enumerate(self.testloader):
                 data, target, idx = batch
                 data, target = data.to(self.device), target.to(self.device)
                 B = data.shape[0]
@@ -371,6 +374,7 @@ class RACNN_Trainer():
 
                 # data [B, C, H, W]
                 out_0, out_1, t_01 = self.model(data) ## [B, NumClasses]
+                print(f"{batch_idx}: GT: {target} // theta: {t_01}")
 
                 ### Classification loss
                 cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
@@ -385,7 +389,7 @@ class RACNN_Trainer():
                 probs_1 = F.softmax(out_1, dim=-1)
                 gt_probs_0 = probs_0[list(range(B)), target]
                 gt_probs_1 = probs_1[list(range(B)), target]
-                rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=0.02)
+                rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
                 rank_loss = rank_loss.sum()
 
                 # calculate accuracy

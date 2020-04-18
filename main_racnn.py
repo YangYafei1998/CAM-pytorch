@@ -24,30 +24,30 @@ from utils.logger import SimpleLogger
 # from train import *
 
 def main(config):
+    
+    ## set seed
+    torch.manual_seed(config['seed'])
+    
+    
     LEARNING_RATE = config['learning_rate']
     WEIGHT_DECAY = config['weight_decay']
     EPOCH = config['max_epoch']
 
-    ## dataset
+    # ## dataset
+    # train_dataset = ImageDataset(
+    #     'image_path_folder/train_image_list_sorted.txt', 
+    #     'image_path_folder/train_image_label_sorted.txt', 
+    #     is_training=True, temporal_coherence=False)
+    ## dataset for 6 classes
     train_dataset = ImageDataset(
-        'image_path_folder/train_image_list_sorted.txt', 
-        'image_path_folder/train_image_label_sorted.txt', 
+        'image_path_folder_6/train_image_list_sorted_6.txt', 
+        'image_path_folder_6/train_image_label_sorted_6.txt', 
         is_training=True, temporal_coherence=False)
+
     test_dataset = ImageDataset(
         'image_path_folder/test_image_list_sorted.txt', 
         'image_path_folder/test_image_label_sorted.txt', 
         is_training=False)
-
-    # ## dataset for 6 classes
-    # train_dataset = ImageDataset(
-    #     'image_path_folder_6/train_image_list_sorted_6.txt', 
-    #     'image_path_folder_6/train_image_label_sorted_6.txt', 
-    #     is_training=True, temporal_coherence=True)
-
-    # test_dataset = ImageDataset(
-    #     'image_path_folder/test_image_list_sorted.txt', 
-    #     'image_path_folder/test_image_label_sorted.txt', 
-    #     is_training=False)
 
     ## network
     # print("BackBone: ResNet18")
@@ -65,7 +65,7 @@ def main(config):
 
     ## optimizer
     optimizer = torch.optim.SGD(net.parameters(), lr=LEARNING_RATE, momentum=0.9, weight_decay=WEIGHT_DECAY)
-    scheduler  = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[5, 25], gamma=0.1)
+    scheduler  = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[25], gamma=0.1)
     
     ## loss
     criterion = TCLoss(num_classes=3)
