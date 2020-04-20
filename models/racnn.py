@@ -104,12 +104,15 @@ class RACNN(nn.Module):
         ## attention proposal head between scales 0 and 1
         self.apn_map_scale_01 = nn.Sequential(
             nn.Conv2d(512, 128, kernel_size=1, bias=False),
-            nn.Tanh(),
+            nn.LeakyReLU(0.2),
+            # nn.Tanh(),
             nn.Conv2d(128, 1, kernel_size=1, bias=False),
-            nn.Tanh(),
+            nn.LeakyReLU(0.2),
+            # nn.Tanh(),
             )
         self.apn_map_flatten_01 = nn.Sequential(
             nn.Linear(14*14+self.num_classes, 3, bias=True),
+            # nn.Linear(14*14, 3, bias=True),
             nn.Sigmoid()
         ) 
 
@@ -177,17 +180,19 @@ class RACNN(nn.Module):
             
         ## classification scale 1
         out_0, f_gap_0, f_conv0 = self.classification(x, lvl=0)
-        ## zoom in
-        # t0 = self.apn(f_gap_0, lvl=0) ## [B, 3]
+        
+        # ## zoom in
+        # # t0 = self.apn(f_gap_0, lvl=0) ## [B, 3]
         if target is None:
             target = torch.argmax(out_0, dim=-1).unsqueeze(1) ## [B, 1]
+
         t0 = self.apn_map(f_conv0, target, lvl=0) ## [B, 3]
         grid = self.grid_sampler(t0) ## [B, H, W, 2]
         x1 = F.grid_sample(x, grid, align_corners=False, padding_mode='border') ## [B, 3, H, W] sampled using grid parameters
         ## classification scale 2
         out_1, f_gap_1, f_conv1 = self.classification(x1, lvl=1)
 
-        return out_0, out_1, t0, f_gap_0
+        return out_0, out_1, t0, f_gap_1
 
     def freeze_network(self, module):
         for p in module.parameters():

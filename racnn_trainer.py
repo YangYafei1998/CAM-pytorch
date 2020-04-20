@@ -60,8 +60,10 @@ class RACNN_Trainer():
         ## Hyper-parameters
         self.margin = config['margin']
         self.max_epoch = config['max_epoch']
-        self.time_consistency = True if config['temp_consistency_weight']>0.0 else False
-        self.consistency_weight = config['temp_consistency_weight']
+        self.time_consistency = config.get('temporal', False) ## default is fault
+        if self.time_consistency:
+            self.consistency_weight = config['temp_consistency_weight']
+
         self.save_period = config['ckpt_save_period']
         batch_size = config['batch_size']
         
@@ -209,7 +211,9 @@ class RACNN_Trainer():
             assert torch.sum(target==0)+torch.sum(target==1)+torch.sum(target==2) == target.numel()
 
             data, target = data.to(self.device), target.to(self.device)
+            
             B = data.shape[0]
+            H, W = data.shape[-2:] # [-2:]==[-2,-1]; [-2:-1] == [-2]
 
             self.optimizer.zero_grad()
             with torch.set_grad_enabled(True):
@@ -221,29 +225,43 @@ class RACNN_Trainer():
                 # else:
                 #    ## whole
                 #    out_0, out_1, t_01 = self.model(data, -1) ## [B, NumClasses]
+                
+                if self.time_consistency:
+                    data = data.view(B*3, 3, H, W)
+                    target = target.view(B*3)
+
                 out_0, out_1, t_01, f_gap_1 = self.model(data, target.unsqueeze(1), -1) ## [B, NumClasses]
                 
                 # print("theta: ", t_01)
                 
-                ### Classification loss
-                cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='mean')
-                cls_loss_1, preds_1 = self.criterion.ImgLvlClassLoss(out_1, target, reduction='mean')
-                cls_loss = cls_loss_0 + cls_loss_1
-                
-                # weights_0 = self.criterion.ComputeEntropyAsWeight(out_0)
-                # weights_1 = self.criterion.ComputeEntropyAsWeight(out_1)
-                # cls_loss = (cls_loss_0*(weights_0**2)+(1-weights_0)**2) + 0.3*(cls_loss_1*(weights_1**2)+(1-weights_1)**2)
-                # cls_loss = cls_loss.sum()
-
+                ### infoNCE loss
                 info_loss = self.criterion.ContrastiveLoss(f_gap_1)
+
+                ### Classification loss
+                cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
+                cls_loss_1, preds_1 = self.criterion.ImgLvlClassLoss(out_1, target, reduction='none')
+                cls_loss = cls_loss_0.sum() + cls_loss_1.sum()
                 
                 ### Ranking loss
+                # B3 = out_0.shape[0]
                 probs_0 = F.softmax(out_0, dim=-1)
                 probs_1 = F.softmax(out_1, dim=-1)
                 gt_probs_0 = probs_0[list(range(B)), target]
                 gt_probs_1 = probs_1[list(range(B)), target]
                 rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
                 rank_loss = rank_loss.sum()
+
+                # ### Temporal coherence
+                # if self.time_consistency:
+                #     temp_loss = 0.0
+                #     out_0 = out_0.view(B, 3, 3)
+                #     out_1 = out_1.view(B, 3, 3)
+                #     target = target.view(B, 3)
+                #     # t_01 = t_01.view(B, 3)
+                #     # f_gap_1 = f_gap_1.view(B, 3)
+                #     temp_loss += self.criterion.TemporalConsistencyLoss(out_0[0], out_0[1], out_0[2])
+                #     temp_loss += self.criterion.TemporalConsistencyLoss(out_1[0], out_1[1], out_1[2])
+
                 # print("gt_probs_0: ", gt_probs_0)
                 # print("gt_probs_1: ", gt_probs_1)
                 # print("rank_loss: ", rank_loss)
@@ -255,7 +273,9 @@ class RACNN_Trainer():
                 # elif loss_config == 1: ##'apn'
                 #     loss = 0.1*cls_loss + rank_loss
                 # else: ##'whole'
-                loss = 5.0*rank_loss + cls_loss + info_loss
+                loss = rank_loss + cls_loss + info_loss
+                if self.time_consistency:
+                    loss += 0.1*temp_loss
 
                 loss.backward()
                 self.optimizer.step()
