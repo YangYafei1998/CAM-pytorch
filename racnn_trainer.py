@@ -25,7 +25,6 @@ class RACNN_Trainer():
     def __init__(self, model, optimizer, lr_scheduler, criterion, train_dataset, test_dataset, logger, config):
         
         self.loss_config = 'whole'
-        self.margin = 0.2
         
         ## 
         self.config = config
@@ -59,6 +58,7 @@ class RACNN_Trainer():
         self.lr_scheduler = lr_scheduler
 
         ## Hyper-parameters
+        self.margin = config['margin']
         self.max_epoch = config['max_epoch']
         self.time_consistency = True if config['temp_consistency_weight']>0.0 else False
         self.consistency_weight = config['temp_consistency_weight']
@@ -181,6 +181,7 @@ class RACNN_Trainer():
         loss_meter = AverageMeter()
         cls_loss_meter = AverageMeter()
         rank_loss_meter = AverageMeter()
+        info_loss_meter = AverageMeter()
         accuracy_0 = AverageMeter()
         accuracy_1 = AverageMeter()
 
@@ -220,22 +221,22 @@ class RACNN_Trainer():
                 # else:
                 #    ## whole
                 #    out_0, out_1, t_01 = self.model(data, -1) ## [B, NumClasses]
-                out_0, out_1, t_01 = self.model(data, -1) ## [B, NumClasses]
+                out_0, out_1, t_01, f_gap_1 = self.model(data, target.unsqueeze(1), -1) ## [B, NumClasses]
                 
                 # print("theta: ", t_01)
                 
-
                 ### Classification loss
-                cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
-                cls_loss_1, preds_1 = self.criterion.ImgLvlClassLoss(out_1, target, reduction='none')
+                cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='mean')
+                cls_loss_1, preds_1 = self.criterion.ImgLvlClassLoss(out_1, target, reduction='mean')
+                cls_loss = cls_loss_0 + cls_loss_1
                 
-                weights_0 = self.criterion.ComputeEntropyAsWeight(out_0)
-                weights_1 = self.criterion.ComputeEntropyAsWeight(out_1)
-
+                # weights_0 = self.criterion.ComputeEntropyAsWeight(out_0)
+                # weights_1 = self.criterion.ComputeEntropyAsWeight(out_1)
                 # cls_loss = (cls_loss_0*(weights_0**2)+(1-weights_0)**2) + 0.3*(cls_loss_1*(weights_1**2)+(1-weights_1)**2)
-                cls_loss = cls_loss_0.sum() + cls_loss_1.sum()
-                cls_loss = cls_loss.sum()
+                # cls_loss = cls_loss.sum()
 
+                info_loss = self.criterion.ContrastiveLoss(f_gap_1)
+                
                 ### Ranking loss
                 probs_0 = F.softmax(out_0, dim=-1)
                 probs_1 = F.softmax(out_1, dim=-1)
@@ -246,13 +247,15 @@ class RACNN_Trainer():
                 # print("gt_probs_0: ", gt_probs_0)
                 # print("gt_probs_1: ", gt_probs_1)
                 # print("rank_loss: ", rank_loss)
+                # print("info_loss: ", info_loss)
+                # print("cls_loss: ", cls_loss)
 
                 # if loss_config == 0: ##'classification'
                 #     loss = cls_loss + 0.1*rank_loss
                 # elif loss_config == 1: ##'apn'
                 #     loss = 0.1*cls_loss + rank_loss
                 # else: ##'whole'
-                loss = 10.0*rank_loss + cls_loss
+                loss = 5.0*rank_loss + cls_loss + info_loss
 
                 loss.backward()
                 self.optimizer.step()
@@ -268,13 +271,15 @@ class RACNN_Trainer():
                 loss_meter.update(loss, 1)
                 cls_loss_meter.update(cls_loss, 1)
                 rank_loss_meter.update(rank_loss, 1)
+                info_loss_meter.update(info_loss, 1)
                 accuracy_0.update(train_acc_0, 1)
                 accuracy_1.update(train_acc_1, 1)
 
 
         return {
             'cls_loss': cls_loss_meter.avg, 'cls_acc_0': accuracy_0.avg, 'cls_acc_1': accuracy_1.avg, 
-            'rank_loss': rank_loss_meter.avg, 'total_loss': loss_meter.avg
+            'rank_loss': rank_loss_meter.avg, 'info_loss': info_loss_meter.avg,
+            'total_loss': loss_meter.avg
             }
 
     
@@ -295,14 +300,15 @@ class RACNN_Trainer():
             B = data.shape[0]
             with torch.set_grad_enabled(True):
                 ## data [B, C, H, W]
-                out_0, out_1, t_01 = self.model(data) ## [B, D]
+                out_0, out_1, t_01, _ = self.model(data) ## [B, D]
                 # print("theta: ", t_01)
 
                 probs_0 = F.softmax(out_0, dim=-1)
                 probs_1 = F.softmax(out_1, dim=-1)
                 gt_probs_0 = probs_0[list(range(B)), target]
                 gt_probs_1 = probs_1[list(range(B)), target]
-                rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=0.02)
+                rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
+
                 # print("gt_probs_0: ", gt_probs_0)
                 # print("gt_probs_1: ", gt_probs_1)
                 # print("rank_loss: ", rank_loss)
@@ -373,7 +379,7 @@ class RACNN_Trainer():
                 # assert torch.sum(target==0)+torch.sum(target==1)+torch.sum(target==2) == target.numel()
 
                 # data [B, C, H, W]
-                out_0, out_1, t_01 = self.model(data) ## [B, NumClasses]
+                out_0, out_1, t_01, _ = self.model(data,target=None) ## [B, NumClasses]
                 print(f"{batch_idx}: GT: {target} // theta: {t_01}")
 
                 ### Classification loss

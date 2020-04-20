@@ -59,6 +59,15 @@ class TCLoss(nn.Module):
         negative_loss = (1-target_) * torch.clamp(probs-negative_margin, max=0.0)**2
 
         return positive_loss.mean() + negative_loss.mean()
+        
+    def ContrastiveLoss(self, features):
+        B = features.shape[0]
+        targets = torch.LongTensor(list(range(B))).to(features.device)
+        features_ = features.flatten(start_dim=1)
+        # print(features_.shape)
+        corr = torch.matmul(features_, features_.t())
+        corr = F.softmax(corr, dim=-1)
+        return F.cross_entropy(corr, targets)
 
     # def PerLocClassLoss(self, inputs, targets):
     #     # size of input

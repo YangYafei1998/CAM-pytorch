@@ -44,7 +44,8 @@ class RACNN(nn.Module):
 
     def __init__(self, num_classes, device, out_h=224, out_w=224):
         super(RACNN, self).__init__()
-
+        
+        self.num_classes = num_classes
         basemodel = models.resnet50(pretrained=True)
         
         ## shared feature extractor
@@ -108,7 +109,7 @@ class RACNN(nn.Module):
             nn.Tanh(),
             )
         self.apn_map_flatten_01 = nn.Sequential(
-            nn.Linear(14*14, 3, bias=True),
+            nn.Linear(14*14+self.num_classes, 3, bias=True),
             nn.Sigmoid()
         ) 
 
@@ -151,7 +152,10 @@ class RACNN(nn.Module):
             xconv = self.apn_map_scale_01(xconv)
             xconv = xconv.flatten(start_dim=1)
             if target is not None:
-                xconv = torch.cat([xconv, target.type(torch.FloatTensor)], dim=-1)
+                target_ = torch.FloatTensor(target.shape[0], self.num_classes).to(xconv.device)
+                target_.zero_()
+                target_.scatter_(1, target, 1)
+                xconv = torch.cat([xconv, target_], dim=-1)
             t = self.apn_map_flatten_01(xconv)
             # shift the sigmoid output to ( [-0.5,0.5], [-0.5,0.5], [0,0.7] ) 
             t = (t-shift)*scale
@@ -160,7 +164,7 @@ class RACNN(nn.Module):
         else:
             raise NotImplementedError
         
-    def forward(self, x, train_config=-1):
+    def forward(self, x, target, train_config=-1):
         
         # alternating between two modes
         if train_config == 1:
@@ -175,13 +179,15 @@ class RACNN(nn.Module):
         out_0, f_gap_0, f_conv0 = self.classification(x, lvl=0)
         ## zoom in
         # t0 = self.apn(f_gap_0, lvl=0) ## [B, 3]
-        t0 = self.apn_map(f_conv0, target=None, lvl=0) ## [B, 3]
+        if target is None:
+            target = torch.argmax(out_0, dim=-1).unsqueeze(1) ## [B, 1]
+        t0 = self.apn_map(f_conv0, target, lvl=0) ## [B, 3]
         grid = self.grid_sampler(t0) ## [B, H, W, 2]
-        x1 = F.grid_sample(x, grid, align_corners=True) ## [B, 3, H, W] sampled using grid parameters
+        x1 = F.grid_sample(x, grid, align_corners=False, padding_mode='border') ## [B, 3, H, W] sampled using grid parameters
         ## classification scale 2
         out_1, f_gap_1, f_conv1 = self.classification(x1, lvl=1)
 
-        return out_0, out_1, t0
+        return out_0, out_1, t0, f_gap_0
 
     def freeze_network(self, module):
         for p in module.parameters():
