@@ -134,34 +134,34 @@ class RACNN_Trainer():
         else:
             print("load pretrained model")
 
+    ## pre-train session
+    def pretrain(self):
+        # self.pretrain_classification()
+        self.pretrain_apn()
+        print("Pre-train Finished")
+
 
     ## training session
     def train(self, max_epoch, do_validation=True):
         if max_epoch is not None:
             self.max_epoch = max_epoch
 
-        # log = self.test_one_epoch(0)
-
         for epoch in range(max_epoch):
             ## training
             self.logger.info(f"epoch {epoch}:")
             self.logger.info(f"Training:")
 
-           ##
-            self.logger.info(f"Both")
-            log = self.train_one_epoch(epoch)
-            self.logger.info(log)
-
-            # ##
-            # self.logger.info(f"Classification")
-            # log = self.train_one_epoch(epoch, self.loss_config_list['classification'])
-            # self.logger.info(log)
-            
-            # ##
-            # self.logger.info(f"Apn")
-            # log = self.train_one_epoch(epoch, self.loss_config_list['apn'])
-            # self.logger.info(log)
-            
+            ##
+            index = epoch // 5
+            if index % 2 == 0:
+                self.logger.info(f"Classification")
+                log = self.train_one_epoch(epoch)
+                self.logger.info(log)
+            else:
+                self.logger.info(f"APN")
+                log = self.train_one_epoch(epoch)
+                self.logger.info(log)
+                
             ## call after the optimizer
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
@@ -196,19 +196,20 @@ class RACNN_Trainer():
         # for batch_idx, batch in enumerate(self.trainloader):
             data, target, idx = batch
 
-            for confusion_idx in range(3, 6):
-                target_cofusion = target==confusion_idx
-                target_replace = torch.randn(torch.sum(target_cofusion))
-                if confusion_idx == 3:
-                    target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([2]))
-                    target[target_cofusion] = target_replace
-                elif confusion_idx == 4:
-                    target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([1]))
-                    target[target_cofusion] = target_replace
-                elif confusion_idx == 5:
-                    target_replace = torch.where(target_replace>0, torch.tensor([1]), torch.tensor([2]))
-                    target[target_cofusion] = target_replace
-            assert torch.sum(target==0)+torch.sum(target==1)+torch.sum(target==2) == target.numel()
+            target = self.generate_confusion_target(target)
+            # for confusion_idx in range(3, 6):
+            #     target_cofusion = target==confusion_idx
+            #     target_replace = torch.randn(torch.sum(target_cofusion))
+            #     if confusion_idx == 3:
+            #         target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([2]))
+            #         target[target_cofusion] = target_replace
+            #     elif confusion_idx == 4:
+            #         target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([1]))
+            #         target[target_cofusion] = target_replace
+            #     elif confusion_idx == 5:
+            #         target_replace = torch.where(target_replace>0, torch.tensor([1]), torch.tensor([2]))
+            #         target[target_cofusion] = target_replace
+            # assert torch.sum(target==0)+torch.sum(target==1)+torch.sum(target==2) == target.numel()
 
             data, target = data.to(self.device), target.to(self.device)
             
@@ -268,14 +269,14 @@ class RACNN_Trainer():
                 # print("info_loss: ", info_loss)
                 # print("cls_loss: ", cls_loss)
 
-                # if loss_config == 0: ##'classification'
-                #     loss = cls_loss + 0.1*rank_loss
-                # elif loss_config == 1: ##'apn'
-                #     loss = 0.1*cls_loss + rank_loss
-                # else: ##'whole'
-                loss = rank_loss + cls_loss + info_loss
-                if self.time_consistency:
-                    loss += 0.1*temp_loss
+                if loss_config == 0: ##'classification'
+                    loss = cls_loss + 0.1*rank_loss
+                elif loss_config == 1: ##'apn'
+                    loss = 0.1*cls_loss + rank_loss
+                else: ##'whole'
+                    loss = rank_loss + cls_loss + info_loss
+                    if self.time_consistency:
+                        loss += 0.1*temp_loss
 
                 loss.backward()
                 self.optimizer.step()
@@ -301,42 +302,6 @@ class RACNN_Trainer():
             'rank_loss': rank_loss_meter.avg, 'info_loss': info_loss_meter.avg,
             'total_loss': loss_meter.avg
             }
-
-    
-    def train_rank_loss_one_epoch(self, epoch):
-        print("train APN")
-        self.model.train()
-        loss_avg = AverageMeter()
-        for batch_idx, batch in tqdm.tqdm(
-            enumerate(self.trainloader), 
-            total=len(self.trainloader),
-            desc='train'+': ', 
-            ncols=80, 
-            leave=False):
-        # for batch_idx, batch in enumerate(self.trainloader):
-            data, target, idx = batch
-            data, target = data.to(self.device), target.to(self.device)
-            self.optimizer.zero_grad()
-            B = data.shape[0]
-            with torch.set_grad_enabled(True):
-                ## data [B, C, H, W]
-                out_0, out_1, t_01, _ = self.model(data) ## [B, D]
-                # print("theta: ", t_01)
-
-                probs_0 = F.softmax(out_0, dim=-1)
-                probs_1 = F.softmax(out_1, dim=-1)
-                gt_probs_0 = probs_0[list(range(B)), target]
-                gt_probs_1 = probs_1[list(range(B)), target]
-                rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
-
-                # print("gt_probs_0: ", gt_probs_0)
-                # print("gt_probs_1: ", gt_probs_1)
-                # print("rank_loss: ", rank_loss)
-                rank_loss = rank_loss.mean()
-                rank_loss.backward()
-                self.optimizer.step()
-                loss_avg.update(rank_loss, 1)
-        return {'rank_loss': loss_avg.avg}
 
     ##
     def test_one_epoch(self, epoch):
@@ -380,23 +345,12 @@ class RACNN_Trainer():
             #    leave=False):
             for batch_idx, batch in enumerate(self.testloader):
                 data, target, idx = batch
+                # target = self.generate_confusion_target(target)
+
                 data, target = data.to(self.device), target.to(self.device)
                 B = data.shape[0]
                 assert B == 1, "test batch size should be 1"
 
-                # for confusion_idx in range(3, 6):
-                #     target_cofusion = target==confusion_idx
-                #     target_replace = torch.randn(torch.sum(target_cofusion))
-                #     if confusion_idx == 3:
-                #         target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([2]))
-                #         target[target_cofusion] = target_replace
-                #     elif confusion_idx == 4:
-                #         target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([1]))
-                #         target[target_cofusion] = target_replace
-                #     elif confusion_idx == 5:
-                #         target_replace = torch.where(target_replace>0, torch.tensor([1]), torch.tensor([2]))
-                #         target[target_cofusion] = target_replace
-                # assert torch.sum(target==0)+torch.sum(target==1)+torch.sum(target==2) == target.numel()
 
                 # data [B, C, H, W]
                 out_0, out_1, t_01, _ = self.model(data,target=None) ## [B, NumClasses]
@@ -405,10 +359,7 @@ class RACNN_Trainer():
                 ### Classification loss
                 cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
                 cls_loss_1, preds_1 = self.criterion.ImgLvlClassLoss(out_1, target, reduction='none')
-                weights_0 = self.criterion.ComputeEntropyAsWeight(out_0)
-                weights_1 = self.criterion.ComputeEntropyAsWeight(out_1)
-                cls_loss = cls_loss_0 * (weights_0**2) + (1-weights_0)**2 + cls_loss_1 * (weights_1**2) + (1-weights_1)**2
-                cls_loss = cls_loss.sum()
+                cls_loss = cls_loss_0.sum() + cls_loss_1.sum()
 
                 ### Ranking loss
                 probs_0 = F.softmax(out_0, dim=-1)
@@ -471,14 +422,125 @@ class RACNN_Trainer():
 
     ##
     def pretrain_classification(self, max_epoch=1):
-        for i in range(max_epoch):
-            log = self.train_classification_one_epoch(epoch)
-        return log
+
+        print("pretran Classification")
+
+        self.model.train()
+        self.optimizer.zero_grad()
+        with torch.set_grad_enabled(True):
+            for batch_idx, batch in tqdm.tqdm(
+                enumerate(self.trainloader), 
+                total=len(self.trainloader),
+                desc='pretrain_cls'+': ', 
+                ncols=80, 
+                leave=False):
+            # for batch_idx, batch in enumerate(self.trainloader):
+                data, target, idx = batch
+                target = self.generate_confusion_target(target)
+
+                data, target = data.to(self.device), target.to(self.device)
+                B = data.shape[0]
+
+                # data [B, C, H, W]
+                out_0, out_1, t_01, _ = self.model(data, target=target.unsqueeze(1)) ## [B, NumClasses]
+
+                ### Classification loss
+                cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
+                cls_loss = cls_loss_0.sum()
+
+                loss = cls_loss
+                loss.backward()
+                self.optimizer.step()
+
+        return
+
 
     ##
     def pretrain_apn(self, max_epoch=1):
-        return self.train_apn_one_epoch(epoch, detach='classification')
         
-    ##
-    def train_apn_one_epoch(self, epoch):
-        raise NotImplementedError
+        print("pretran APN")
+
+        self.model.train()
+        self.optimizer.zero_grad()
+        with torch.set_grad_enabled(True):
+            ## weight
+            params_classifier_0 = list(self.model.classifier_0.parameters())
+            ## -2 because we have bias in the classifier
+            weight_softmax_0 = params_classifier_0[-2].data
+            # hook the feature extractor instantaneously and remove it once data is hooked
+            f_conv_0 = []
+            def hook_feature_conv_scale_0(module, input, output):
+                f_conv_0.clear()
+                f_conv_0.append(output.data)
+            ## place hooker
+            h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
+
+            for batch_idx, batch in tqdm.tqdm(
+                enumerate(self.trainloader), 
+                total=len(self.trainloader),
+                desc='pretrain_apn'+': ', 
+                ncols=80, 
+                leave=False):
+            # for batch_idx, batch in enumerate(self.trainloader):
+                data, target, idx = batch
+                target = self.generate_confusion_target(target)
+
+                data, target = data.to(self.device), target.to(self.device)
+                B = data.shape[0]
+
+                # data [B, C, H, W]
+                out_0, out_1, t_01, _ = self.model(data, target=target.unsqueeze(1)) ## [B, NumClasses]
+
+                ### Classification loss
+                cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
+                cls_loss = cls_loss_0.sum()
+
+                ### get CAM peak
+                theta = self.get_cam_peak(f_conv_0[-1], weight_softmax_0[target,:])
+
+                loss = F.mse_loss(t_01, theta)
+                loss.backward()
+                self.optimizer.step()
+
+        return 
+    
+    # generate class activation mapping for the top1 prediction
+    # def returnCAM(feature_conv, weight_softmax):
+    #     # generate the class activation maps upsample to 256x256
+    #     size_upsample = (256, 256)
+    #     bz, nc, h, w = feature_conv.shape
+    #     # print(weight_softmax.shape)
+    #     cam = weight_softmax.dot(feature_conv.reshape((nc, h*w)))
+    #     cam = cam.reshape(h, w)
+    #     cam = cam - np.min(cam)
+    #     cam_img = cam / np.max(cam)
+    #     cam_img = np.uint8(255 * cam_img)
+    #     return cam_img
+    def get_cam_peak(self, feature, weight_softmax):
+        B, C = weight_softmax.shape
+        weight_softmax = weight_softmax.reshape(B, 1, C)
+        _, nc, h, w = feature.shape
+        cam = weight_softmax.bmm(feature.flatten(start_dim=2))
+        cam = cam.reshape(B, -1)
+        print('cam.shape: ', cam.shape)
+        max_loc = torch.argmax(cam, dim=-1)
+        # print('max_loc.shape: ', max_loc.shape)
+        # print('max_loc: ', max_loc)
+        # input()
+        return
+
+    def generate_confusion_target(self, target):
+        for confusion_idx in range(3, 6):
+            target_cofusion = target==confusion_idx
+            target_replace = torch.randn(torch.sum(target_cofusion))
+            if confusion_idx == 3:
+                target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([2]))
+                target[target_cofusion] = target_replace
+            elif confusion_idx == 4:
+                target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([1]))
+                target[target_cofusion] = target_replace
+            elif confusion_idx == 5:
+                target_replace = torch.where(target_replace>0, torch.tensor([1]), torch.tensor([2]))
+                target[target_cofusion] = target_replace
+        assert torch.sum(target==0)+torch.sum(target==1)+torch.sum(target==2) == target.numel()
+        return target

@@ -20,6 +20,8 @@ from torchvision import datasets, transforms, utils
 import random
 import cv2
 
+from albumentations import GaussNoise, MotionBlur, MedianBlur
+
 
 ## Load images concated by flow and rgb images
 class ImageDataset():
@@ -45,6 +47,9 @@ class ImageDataset():
                 mean=[0.485, 0.456, 0.406],
                 std=[0.229, 0.224, 0.225]
         )
+
+        ## data augmentation
+
 
         if is_training:
             self.data_transforms = transforms.Compose([

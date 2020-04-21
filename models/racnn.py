@@ -59,6 +59,17 @@ class RACNN(nn.Module):
             basemodel.layer3
         )
 
+        ## shared feature extractor
+        self.base1 = nn.Sequential(
+            basemodel.conv1,
+            basemodel.bn1,
+            basemodel.relu,
+            basemodel.maxpool,
+            basemodel.layer1,
+            basemodel.layer2,
+            basemodel.layer3
+        )
+
         ## global average pooling
         self.gap = nn.AdaptiveAvgPool2d(1)
         ## dropout
@@ -113,19 +124,22 @@ class RACNN(nn.Module):
         self.apn_map_flatten_01 = nn.Sequential(
             nn.Linear(14*14+self.num_classes, 3, bias=True),
             # nn.Linear(14*14, 3, bias=True),
-            nn.Sigmoid()
+            # nn.Tanh() ## tanh results seem to be worse
+            nn.Sigmoid() ## so-so
         ) 
 
         ## print the network architecture
         print(self)
     
     def classification(self, x, lvl):
-        x = self.base(x)
+        # x = self.base(x)
         if lvl == 0:
+            x = self.base(x)
             f_conv = self.conv_scale_0(x)
             f_gap = self.gap(f_conv)
             return self.classifier_0(self.drop(f_gap).squeeze(2).squeeze(2)), f_gap, f_conv
         elif lvl == 1:
+            x = self.base(x)
             f_conv = self.conv_scale_1(x)
             f_gap = self.gap(f_conv)
             return self.classifier_1(self.drop(f_gap).squeeze(2).squeeze(2)), f_gap, f_conv
@@ -149,7 +163,9 @@ class RACNN(nn.Module):
     def apn_map(self, xconv, target, lvl):
         # x = self.drop(x)
         # print(x.shape)
-        shift = torch.tensor([[0.5, 0.5, -0.5]]).to(xconv.device)
+        # shift = torch.tensor([[0.0, 0.0, 1.0]]).to(xconv.device)
+        # scale = torch.tensor([[0.5, 0.5, 0.4]]).to(xconv.device)
+        shift = torch.tensor([[0.5, 0.5, -1.0]]).to(xconv.device)
         scale = torch.tensor([[1.0, 1.0, 0.4]]).to(xconv.device)
         if lvl == 0:
             xconv = self.apn_map_scale_01(xconv)
@@ -160,7 +176,7 @@ class RACNN(nn.Module):
                 target_.scatter_(1, target, 1)
                 xconv = torch.cat([xconv, target_], dim=-1)
             t = self.apn_map_flatten_01(xconv)
-            # shift the sigmoid output to ( [-0.5,0.5], [-0.5,0.5], [0,0.7] ) 
+            # shift the sigmoid output to ( [-0.5,0.5], [-0.5,0.5], [0.4,0.8] ) 
             t = (t-shift)*scale
             #print(t[0,...])
             return t
@@ -177,7 +193,9 @@ class RACNN(nn.Module):
             self.freeze_network(self.classifier_1)
         elif train_config == 0:
             self.freeze_network(self.apn_scale_01)
-            
+        
+        # self.freeze_network(self.base)
+
         ## classification scale 1
         out_0, f_gap_0, f_conv0 = self.classification(x, lvl=0)
         
@@ -188,7 +206,7 @@ class RACNN(nn.Module):
 
         t0 = self.apn_map(f_conv0, target, lvl=0) ## [B, 3]
         grid = self.grid_sampler(t0) ## [B, H, W, 2]
-        x1 = F.grid_sample(x, grid, align_corners=False, padding_mode='border') ## [B, 3, H, W] sampled using grid parameters
+        x1 = F.grid_sample(x, grid, align_corners=False, padding_mode='reflection') ## [B, 3, H, W] sampled using grid parameters
         ## classification scale 2
         out_1, f_gap_1, f_conv1 = self.classification(x1, lvl=1)
 

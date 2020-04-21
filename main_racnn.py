@@ -80,6 +80,7 @@ def main(config):
 
     ## train-test loop
     trainer = RACNN_Trainer(net, optimizer, scheduler, criterion, train_dataset, test_dataset, logger, config)
+    # trainer.pretrain()
     trainer.train(EPOCH, do_validation=True)
 
 
@@ -94,6 +95,12 @@ if __name__ == '__main__':
                         help='the size of each minibatch')
     parser.add_argument('--max_epoch', default=None, help='max epochs', type=int)
     
+
+    parser.add_argument('-wd', '--weight_decay', default=None, type=float,
+                        help='the size of each minibatch')
+    parser.add_argument('-lr', '--learning_rate', default=None, type=float,
+                        help='the size of each minibatch')
+
     parser.add_argument('--disable_workers', action="store_true")
     parser.add_argument('--comment', help="comments to the session", type=str)
     parser.add_argument('--config', default=None, type=str,
@@ -119,6 +126,15 @@ if __name__ == '__main__':
     if args.disable_workers:
         config.set_content('disable_workers', args.disable_workers)
     
+
+    ## hyperparameters
+    if args.weight_decay is not None:
+        config.set_content('weight_decay', args.weight_decay)
+    if args.learning_rate is not None:
+        config.set_content('learning_rate', args.learning_rate)
+
+
+    ##
     if args.comment is not None:
         config.set_content('comment', args.comment)
 
