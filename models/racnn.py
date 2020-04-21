@@ -191,8 +191,8 @@ class RACNN(nn.Module):
             self.freeze_network(self.conv_scale_1)
             self.freeze_network(self.classifier_0)
             self.freeze_network(self.classifier_1)
-        elif train_config == 0:
-            self.freeze_network(self.apn_scale_01)
+        # elif train_config == 0:
+        #     self.freeze_network(self.apn_scale_01)
         
         # self.freeze_network(self.base)
 

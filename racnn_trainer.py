@@ -151,15 +151,14 @@ class RACNN_Trainer():
             self.logger.info(f"epoch {epoch}:")
             self.logger.info(f"Training:")
 
-            ##
-            index = epoch // 5
-            if index % 2 == 0:
-                self.logger.info(f"Classification")
-                log = self.train_one_epoch(epoch)
+            
+            if epoch % 7 == 5 or epoch % 7 == 6:
+                self.logger.info(f"APN")
+                log = self.train_one_epoch(epoch, 1)
                 self.logger.info(log)
             else:
-                self.logger.info(f"APN")
-                log = self.train_one_epoch(epoch)
+                self.logger.info(f"Classification")
+                log = self.train_one_epoch(epoch, 0)
                 self.logger.info(log)
                 
             ## call after the optimizer
@@ -195,22 +194,8 @@ class RACNN_Trainer():
             leave=False):
         # for batch_idx, batch in enumerate(self.trainloader):
             data, target, idx = batch
-
             target = self.generate_confusion_target(target)
-            # for confusion_idx in range(3, 6):
-            #     target_cofusion = target==confusion_idx
-            #     target_replace = torch.randn(torch.sum(target_cofusion))
-            #     if confusion_idx == 3:
-            #         target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([2]))
-            #         target[target_cofusion] = target_replace
-            #     elif confusion_idx == 4:
-            #         target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([1]))
-            #         target[target_cofusion] = target_replace
-            #     elif confusion_idx == 5:
-            #         target_replace = torch.where(target_replace>0, torch.tensor([1]), torch.tensor([2]))
-            #         target[target_cofusion] = target_replace
-            # assert torch.sum(target==0)+torch.sum(target==1)+torch.sum(target==2) == target.numel()
-
+            
             data, target = data.to(self.device), target.to(self.device)
             
             B = data.shape[0]
@@ -219,19 +204,11 @@ class RACNN_Trainer():
             self.optimizer.zero_grad()
             with torch.set_grad_enabled(True):
                 # data [B, C, H, W]
-                # if loss_config == 'classification':
-                #    out_0, out_1, t_01 = self.model(data, 0) ## [B, NumClasses]
-                # elif loss_config == 'apn':
-                #    out_0, out_1, t_01 = self.model(data, 1) ## [B, NumClasses]
-                # else:
-                #    ## whole
-                #    out_0, out_1, t_01 = self.model(data, -1) ## [B, NumClasses]
-                
                 if self.time_consistency:
                     data = data.view(B*3, 3, H, W)
                     target = target.view(B*3)
 
-                out_0, out_1, t_01, f_gap_1 = self.model(data, target.unsqueeze(1), -1) ## [B, NumClasses]
+                out_0, out_1, t_01, f_gap_1 = self.model(data, target.unsqueeze(1), loss_config) ## [B, NumClasses]
                 
                 # print("theta: ", t_01)
                 
@@ -270,9 +247,9 @@ class RACNN_Trainer():
                 # print("cls_loss: ", cls_loss)
 
                 if loss_config == 0: ##'classification'
-                    loss = cls_loss + 0.1*rank_loss
+                    loss = cls_loss + 0.01*rank_loss
                 elif loss_config == 1: ##'apn'
-                    loss = 0.1*cls_loss + rank_loss
+                    loss = 0.01*cls_loss + rank_loss
                 else: ##'whole'
                     loss = rank_loss + cls_loss + info_loss
                     if self.time_consistency:

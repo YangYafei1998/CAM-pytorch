@@ -20,12 +20,12 @@ from torchvision import datasets, transforms, utils
 import random
 import cv2
 
-from albumentations import GaussNoise, MotionBlur, MedianBlur
+from albumentations import GaussNoise, MotionBlur, MedianBlur, OneOf, Compose
 
 
 ## Load images concated by flow and rgb images
 class ImageDataset():
-    def __init__(self, image_path_file, image_label_file, is_training=True, temporal_coherence=False):
+    def __init__(self, image_path_file, image_label_file, is_training=True, augmentation=False, temporal_coherence=False):
         
         self.is_training = is_training
         self.temporal_coherence = temporal_coherence
@@ -49,22 +49,44 @@ class ImageDataset():
         )
 
         ## data augmentation
+        def image_augmentation(p=1.0):
+            return Compose(
+                [
+                    GaussNoise(var_limit=(10.0,50.0),mean=0,p=0.2),
+                    OneOf([
+                        MotionBlur(p=0.2),
+                        MedianBlur(blur_limit=3, p=0.1),
+                        Blur(blur_limit=3, p=0.1),
+                    ], p=0.2),
+                    CoarseDropout(max_holes=2, min_holes=0, max_height=15, max_width=15, p=0.3)
+                ]
+            )
 
-
-        if is_training:
-            self.data_transforms = transforms.Compose([
-                transforms.Resize(256),
-                transforms.RandomResizedCrop(224),
-                transforms.ToTensor(),
-                normalize
-            ])
-        else:
+        if not is_training:
             self.data_transforms = transforms.Compose([
                 transforms.Resize(256),
                 transforms.CenterCrop(224),
                 transforms.ToTensor(),
                 normalize
             ])
+        elif augmentation:
+            self.data_transforms = transforms.Compose([
+                transforms.Resize(256),
+                transforms.RandomResizedCrop(224),
+                image_augmentation(1.0),
+                transforms.ToTensor(),
+                normalize
+            ])
+        else:
+            self.data_transforms = transforms.Compose([
+                transforms.Resize(256),
+                transforms.RandomResizedCrop(224),
+                transforms.ToTensor(),
+                normalize
+            ])
+            
+
+            
 
         # # prepare data
         # normalize = transforms.Normalize(
