@@ -139,7 +139,7 @@ class RACNN(nn.Module):
             f_gap = self.gap(f_conv)
             return self.classifier_0(self.drop(f_gap).squeeze(2).squeeze(2)), f_gap, f_conv
         elif lvl == 1:
-            x = self.base(x)
+            x = self.base1(x)
             f_conv = self.conv_scale_1(x)
             f_gap = self.gap(f_conv)
             return self.classifier_1(self.drop(f_gap).squeeze(2).squeeze(2)), f_gap, f_conv
@@ -150,7 +150,7 @@ class RACNN(nn.Module):
         # x = self.drop(x)
         # print(x.shape)
         shift = torch.tensor([[0.5, 0.5, -0.5]]).to(xgap.device)
-        scale = torch.tensor([[1.0, 1.0, 0.4]]).to(xgap.device)
+        scale = torch.tensor([[1.0, 1.0, 0.3]]).to(xgap.device)
         if lvl == 0:
             t = self.apn_scale_01(xgap.squeeze(2).squeeze(2))
             # shift the sigmoid output to ( [-0.5,0.5], [-0.5,0.5], [0,0.7] ) 
@@ -168,8 +168,15 @@ class RACNN(nn.Module):
         shift = torch.tensor([[0.5, 0.5, -1.0]]).to(xconv.device)
         scale = torch.tensor([[1.0, 1.0, 0.4]]).to(xconv.device)
         if lvl == 0:
-            xconv = self.apn_map_scale_01(xconv)
-            xconv = xconv.flatten(start_dim=1)
+            # xconv = self.apn_map_scale_01(xconv)
+            # xconv = xconv.flatten(start_dim=1)
+            # print(xconv.shape)
+            B, C = xconv.shape[0:2]
+            xconv = xconv.view(B, C, -1)
+            xconv = xconv.permute(0,2,1)
+            xconv = F.adaptive_avg_pool1d(xconv, 1).squeeze(2)
+            # print(xconv.shape)
+            # input()
             if target is not None:
                 target_ = torch.FloatTensor(target.shape[0], self.num_classes).to(xconv.device)
                 target_.zero_()
@@ -187,14 +194,20 @@ class RACNN(nn.Module):
         
         # alternating between two modes
         if train_config == 1:
+            self.freeze_network(self.base)
+            self.freeze_network(self.base1)
             self.freeze_network(self.conv_scale_0)
             self.freeze_network(self.conv_scale_1)
             self.freeze_network(self.classifier_0)
             self.freeze_network(self.classifier_1)
-        # elif train_config == 0:
-        #     self.freeze_network(self.apn_scale_01)
-        
-        # self.freeze_network(self.base)
+        else:
+            self.unfreeze_network(self.base)
+            self.unfreeze_network(self.base1)
+            self.unfreeze_network(self.conv_scale_0)
+            self.unfreeze_network(self.conv_scale_1)
+            self.unfreeze_network(self.classifier_0)
+            self.unfreeze_network(self.classifier_1)
+            self.unfreeze_network(self.apn_scale_01)
 
         ## classification scale 1
         out_0, f_gap_0, f_conv0 = self.classification(x, lvl=0)
@@ -215,3 +228,7 @@ class RACNN(nn.Module):
     def freeze_network(self, module):
         for p in module.parameters():
             p.requires_grad = False
+
+    def unfreeze_network(self, module):
+        for p in module.parameters():
+            p.requires_grad = True

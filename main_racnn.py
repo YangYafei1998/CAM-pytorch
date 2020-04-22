@@ -100,6 +100,8 @@ if __name__ == '__main__':
                         help='the size of each minibatch')
     parser.add_argument('-lr', '--learning_rate', default=None, type=float,
                         help='the size of each minibatch')
+    parser.add_argument('--interleave', default=None, type=int,
+                        help='the size of each minibatch')
 
     parser.add_argument('--disable_workers', action="store_true")
     parser.add_argument('--comment', help="comments to the session", type=str)
@@ -132,7 +134,8 @@ if __name__ == '__main__':
         config.set_content('weight_decay', args.weight_decay)
     if args.learning_rate is not None:
         config.set_content('learning_rate', args.learning_rate)
-
+    if args.interleave is not None:
+        config.set_content('interleave', args.interleave)
 
     ##
     if args.comment is not None:

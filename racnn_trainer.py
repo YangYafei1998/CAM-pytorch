@@ -58,6 +58,7 @@ class RACNN_Trainer():
         self.lr_scheduler = lr_scheduler
 
         ## Hyper-parameters
+        self.interleaving_step = config['interleave']
         self.margin = config['margin']
         self.max_epoch = config['max_epoch']
         self.time_consistency = config.get('temporal', False) ## default is fault
@@ -148,18 +149,26 @@ class RACNN_Trainer():
 
         for epoch in range(max_epoch):
             ## training
-            self.logger.info(f"epoch {epoch}:")
-            self.logger.info(f"Training:")
+            self.logger.info(f"epoch {epoch}:\n")
+            self.logger.info(f"Training:\n")
 
-            
-            if epoch % 7 == 5 or epoch % 7 == 6:
-                self.logger.info(f"APN")
+            self.logger.info(f"Classification\n")
+            log = self.train_one_epoch(epoch, 0)
+            self.logger.info(log)
+
+            if epoch % self.interleaving_step == 0:
+                self.logger.info(f"APN\n")
                 log = self.train_one_epoch(epoch, 1)
                 self.logger.info(log)
-            else:
-                self.logger.info(f"Classification")
-                log = self.train_one_epoch(epoch, 0)
-                self.logger.info(log)
+
+            # if epoch % 7 == 5 or epoch % 7 == 6:
+            #     self.logger.info(f"APN")
+            #     log = self.train_one_epoch(epoch, 1)
+            #     self.logger.info(log)
+            # else:
+            #     self.logger.info(f"Classification")
+            #     log = self.train_one_epoch(epoch, 0)
+            #     self.logger.info(log)
                 
             ## call after the optimizer
             if self.lr_scheduler is not None:
@@ -176,7 +185,7 @@ class RACNN_Trainer():
 
     ##
     def train_one_epoch(self, epoch, loss_config=-1):
-        
+        print("loss_config: ", loss_config)
         self.model.train()
 
         loss_meter = AverageMeter()
@@ -212,8 +221,8 @@ class RACNN_Trainer():
                 
                 # print("theta: ", t_01)
                 
-                ### infoNCE loss
-                info_loss = self.criterion.ContrastiveLoss(f_gap_1)
+                # ### infoNCE loss
+                # info_loss = self.criterion.ContrastiveLoss(f_gap_1)
 
                 ### Classification loss
                 cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
@@ -247,9 +256,9 @@ class RACNN_Trainer():
                 # print("cls_loss: ", cls_loss)
 
                 if loss_config == 0: ##'classification'
-                    loss = cls_loss + 0.01*rank_loss
+                    loss = cls_loss
                 elif loss_config == 1: ##'apn'
-                    loss = 0.01*cls_loss + rank_loss
+                    loss = rank_loss
                 else: ##'whole'
                     loss = rank_loss + cls_loss + info_loss
                     if self.time_consistency:
@@ -269,14 +278,15 @@ class RACNN_Trainer():
                 loss_meter.update(loss, 1)
                 cls_loss_meter.update(cls_loss, 1)
                 rank_loss_meter.update(rank_loss, 1)
-                info_loss_meter.update(info_loss, 1)
+                # info_loss_meter.update(info_loss, 1)
                 accuracy_0.update(train_acc_0, 1)
                 accuracy_1.update(train_acc_1, 1)
 
 
         return {
             'cls_loss': cls_loss_meter.avg, 'cls_acc_0': accuracy_0.avg, 'cls_acc_1': accuracy_1.avg, 
-            'rank_loss': rank_loss_meter.avg, 'info_loss': info_loss_meter.avg,
+            'rank_loss': rank_loss_meter.avg, 
+            # 'info_loss': info_loss_meter.avg,
             'total_loss': loss_meter.avg
             }
 
