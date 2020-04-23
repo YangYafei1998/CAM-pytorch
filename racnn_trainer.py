@@ -195,6 +195,24 @@ class RACNN_Trainer():
         accuracy_0 = AverageMeter()
         accuracy_1 = AverageMeter()
 
+
+        params_classifier_0 = list(self.model.classifier_0.parameters())
+        params_classifier_1 = list(self.model.classifier_1.parameters())
+        weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
+        weight_softmax_1 = np.squeeze(params_classifier_1[-2].data.cpu().numpy())   
+        f_conv_0, f_conv_1 = [], []
+        def hook_feature_conv_scale_0(module, input, output):
+            print("#################in hook feature!")
+            f_conv_0.clear()
+            f_conv_0.append(output.data.cpu().numpy())
+        def hook_feature_conv_scale_1(module, input, output):
+            f_conv_1.clear()
+            f_conv_1.append(output.data.cpu().numpy())
+        h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
+        h1 = self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
+        print("h0, ", h0)
+
+
         for batch_idx, batch in tqdm.tqdm(
             enumerate(self.trainloader), 
             total=len(self.trainloader),
@@ -241,31 +259,13 @@ class RACNN_Trainer():
 ##################################################################################################################################                
 
 
-
-                params_classifier_0 = list(self.model.classifier_0.parameters())
-                params_classifier_1 = list(self.model.classifier_1.parameters())
-                weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
-                weight_softmax_1 = np.squeeze(params_classifier_1[-2].data.cpu().numpy())   
-                print("target", target)
-
-                weight_softmax_0_gt = weight_softmax_0[target.cpu(), :]
-                weight_softmax_1_gt = weight_softmax_1[target.cpu(), :]       
-                f_conv_0, f_conv_1 = [], []
-                def hook_feature_conv_scale_0(module, input, output):
-                    print("#################in hook feature!")
-                    f_conv_0.clear()
-                    f_conv_0.append(output.data.cpu().numpy())
-                def hook_feature_conv_scale_1(module, input, output):
-                    f_conv_1.clear()
-                    f_conv_1.append(output.data.cpu().numpy())
-                h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
-                h1 = self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
-                
-                print("h0, ", h0)
+              
+                weight_softmax_0_gt = weight_softmax_0[target, :]
+                weight_softmax_1_gt = weight_softmax_1[target, :]                 
                 probs_0 = F.softmax(out_0, dim=-1)
                 probs_1 = F.softmax(out_1, dim=-1)
-                gt_probs_0 = probs_0[list(range(B)), target]
-                gt_probs_1 = probs_1[list(range(B)), target]
+                gt_probs_0 = probs_0[list(range(B)), target.cpu()]
+                gt_probs_1 = probs_1[list(range(B)), target.cpu()]
                 img_path = self.trainloader.dataset.get_fname(idx)
 
                 print ("weight_softmax_0_gt, ",weight_softmax_0_gt)
