@@ -24,7 +24,7 @@ class GridSampler(nn.Module):
         self.grid_Y = self.grid_Y.to(device).requires_grad_(False)
 
     def forward(self, theta):
-        ## theta \in [0, 1]
+        ## theta \in [0, 1], theta:tx, ty, tl
         B = theta.shape[0] ## batch size
         # print(theta.shape)
         theta = theta.unsqueeze(2).unsqueeze(3).unsqueeze(4)
@@ -161,7 +161,8 @@ class RACNN(nn.Module):
             raise NotImplementedError
             
     def apn_map(self, xconv, target, lvl):
-        # x = self.drop(x)
+        # x = self.drop(x) 
+        # after conv->h*w, after gap->vector(cannel*1*1 's tensor)
         # print(x.shape)
         # shift = torch.tensor([[0.0, 0.0, 1.0]]).to(xconv.device)
         # scale = torch.tensor([[0.5, 0.5, 0.4]]).to(xconv.device)
@@ -218,7 +219,9 @@ class RACNN(nn.Module):
             target = torch.argmax(out_0, dim=-1).unsqueeze(1) ## [B, 1]
 
         t0 = self.apn_map(f_conv0, target, lvl=0) ## [B, 3]
-        grid = self.grid_sampler(t0) ## [B, H, W, 2]
+        grid = self.grid_sampler(t0) ## [B, H, W, 2]  
+                                     ##transition of each pixel
+        # x origin image, x1 after zoom in                             
         x1 = F.grid_sample(x, grid, align_corners=False, padding_mode='reflection') ## [B, 3, H, W] sampled using grid parameters
         ## classification scale 2
         out_1, f_gap_1, f_conv1 = self.classification(x1, lvl=1)

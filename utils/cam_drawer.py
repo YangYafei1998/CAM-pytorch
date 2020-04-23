@@ -106,6 +106,7 @@ def returnCAM(feature_conv, weight_softmax):
 
 class CAMDrawer():
     classes = ['C', 'H', 'P']
+    # classes = ['C', 'H', 'P','CH','HC','PH']
     def __init__(self, save_folder, img_width=256, img_height=256, device=None, bar=0.8, classes=None):
         if classes is not None:
             self.classes = classes
@@ -120,6 +121,8 @@ class CAMDrawer():
         self.H = img_height
         
 
+
+
     def draw_cam(self, epoch, prob, idx, weight_softmax, feature, img_path, theta=None, sub_folder=None, GT=None, logit=None):
         ## compute softmax probablity
         save_folder = self.save_folder
@@ -129,9 +132,6 @@ class CAMDrawer():
         if not os.path.exists(save_folder):
             os.makedirs(save_folder)
 
-        # h_x = F.softmax(logit, dim=1).data.squeeze()
-        # probs, idx = h_x.sort(0, True)
-        
         # render the CAM and output
         img = cv2.imread(img_path, -1) ## [H, W, C]
         if theta is not None:

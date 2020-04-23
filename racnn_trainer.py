@@ -5,7 +5,7 @@ import tqdm
 from datetime import datetime
 import collections
 from utils.cam_drawer import CAMDrawer
-
+from models.loss import camforCount
 import torch
 import torch.nn.functional as F
 
@@ -36,7 +36,7 @@ class RACNN_Trainer():
         self.ckpt_folder = config['ckpt_folder']
         self.log_folder = config['log_folder']
         self.result_folder = config['result_folder']
-
+      
         ## device
         if config['device'] != -1:
             cuda_id = f"cuda:{config['device']}"
@@ -230,30 +230,55 @@ class RACNN_Trainer():
                 cls_loss = cls_loss_0.sum() + cls_loss_1.sum()
                 
                 ### Ranking loss
-                # B3 = out_0.shape[0]
+
+                # probs_0 = F.softmax(out_0, dim=-1)
+                # probs_1 = F.softmax(out_1, dim=-1)
+                # gt_probs_0 = probs_0[list(range(B)), target]
+                # gt_probs_1 = probs_1[list(range(B)), target]
+                # rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
+                # rank_loss = rank_loss.sum()
+                
+##################################################################################################################################                
+
+
+
+                params_classifier_0 = list(self.model.classifier_0.parameters())
+                params_classifier_1 = list(self.model.classifier_1.parameters())
+                weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
+                weight_softmax_1 = np.squeeze(params_classifier_1[-2].data.cpu().numpy())   
+                print("target", target)
+
+                weight_softmax_0_gt = weight_softmax_0[target.cpu(), :]
+                weight_softmax_1_gt = weight_softmax_1[target.cpu(), :]       
+                f_conv_0, f_conv_1 = [], []
+                def hook_feature_conv_scale_0(module, input, output):
+                    print("#################in hook feature!")
+                    f_conv_0.clear()
+                    f_conv_0.append(output.data.cpu().numpy())
+                def hook_feature_conv_scale_1(module, input, output):
+                    f_conv_1.clear()
+                    f_conv_1.append(output.data.cpu().numpy())
+                h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
+                h1 = self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
+                
+                print("h0, ", h0)
                 probs_0 = F.softmax(out_0, dim=-1)
                 probs_1 = F.softmax(out_1, dim=-1)
                 gt_probs_0 = probs_0[list(range(B)), target]
                 gt_probs_1 = probs_1[list(range(B)), target]
-                rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
+                img_path = self.trainloader.dataset.get_fname(idx)
+
+                print ("weight_softmax_0_gt, ",weight_softmax_0_gt)
+                print("self.model.conv_scale_0[-2] ", self.model.conv_scale_0[-2])
+                print("f_conv_0, ",f_conv_0)
+                print("img_path[0]",img_path[0] )
+                count0 = camforCount(weight_softmax=weight_softmax_0_gt, feature=f_conv_0[-1], img_path=img_path[0])
+                count1 = camforCount(weight_softmax=weight_softmax_1_gt, feature=f_conv_1[-1], img_path=img_path[0])
+                rank_loss = self.criterion.RankingLossDivideByCount(gt_probs_0, count0, gt_probs_1, count1, margin=self.margin)
+                # rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
                 rank_loss = rank_loss.sum()
 
-                # ### Temporal coherence
-                # if self.time_consistency:
-                #     temp_loss = 0.0
-                #     out_0 = out_0.view(B, 3, 3)
-                #     out_1 = out_1.view(B, 3, 3)
-                #     target = target.view(B, 3)
-                #     # t_01 = t_01.view(B, 3)
-                #     # f_gap_1 = f_gap_1.view(B, 3)
-                #     temp_loss += self.criterion.TemporalConsistencyLoss(out_0[0], out_0[1], out_0[2])
-                #     temp_loss += self.criterion.TemporalConsistencyLoss(out_1[0], out_1[1], out_1[2])
-
-                # print("gt_probs_0: ", gt_probs_0)
-                # print("gt_probs_1: ", gt_probs_1)
-                # print("rank_loss: ", rank_loss)
-                # print("info_loss: ", info_loss)
-                # print("cls_loss: ", cls_loss)
+############################################################################################################################################
 
                 if loss_config == 0: ##'classification'
                     loss = cls_loss
@@ -348,13 +373,36 @@ class RACNN_Trainer():
                 cls_loss_1, preds_1 = self.criterion.ImgLvlClassLoss(out_1, target, reduction='none')
                 cls_loss = cls_loss_0.sum() + cls_loss_1.sum()
 
+############################################################################################################################################
+
                 ### Ranking loss
+                # probs_0 = F.softmax(out_0, dim=-1)
+                # probs_1 = F.softmax(out_1, dim=-1)
+                # gt_probs_0 = probs_0[list(range(B)), target]
+                # gt_probs_1 = probs_1[list(range(B)), target]
+                # rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
+                # rank_loss = rank_loss.sum()
+
+
+                params_classifier_0 = list(self.model.classifier_0.parameters())
+                params_classifier_1 = list(self.model.classifier_1.parameters())
+                weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
+                weight_softmax_1 = np.squeeze(params_classifier_1[-2].data.cpu().numpy())   
+                weight_softmax_0_gt = weight_softmax_0[target, :]
+                weight_softmax_1_gt = weight_softmax_1[target, :]       
+
                 probs_0 = F.softmax(out_0, dim=-1)
                 probs_1 = F.softmax(out_1, dim=-1)
                 gt_probs_0 = probs_0[list(range(B)), target]
                 gt_probs_1 = probs_1[list(range(B)), target]
-                rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
+                img_path = self.trainloader.dataset.get_fname(idx)
+                count0 = self.criterion.camforCount(weight_softmax_0_gt, f_conv_0[-1], img_path[0])
+                count1 = self.criterion.camforCount(weight_softmax_1_gt, f_conv_1[-1], img_path[0])
+                rank_loss = self.criterion.RankingLossDivideByCount(gt_probs_0, count0, gt_probs_1, count1, margin=self.margin)
                 rank_loss = rank_loss.sum()
+
+
+############################################################################################################################################
 
                 # calculate accuracy
                 correct_0 = (torch.max(out_0, dim=1)[1].view(target.size()).data == target.data).sum()
@@ -370,6 +418,7 @@ class RACNN_Trainer():
                 if self.draw_cams and epoch % self.save_period == 0:
                     img_path = self.testloader.dataset.get_fname(idx)
                     # print(img_path)
+                    print("target ", target)
                     weight_softmax_0_gt = weight_softmax_0[target, :]
                     weight_softmax_1_gt = weight_softmax_1[target, :]
                     self.drawer.draw_cam(
@@ -389,6 +438,8 @@ class RACNN_Trainer():
                 videoname_0 = f'video_epoch{epoch}_{timestamp}_scale0.avi'
                 videoname_0 = os.path.join(self.result_folder, videoname_0)
                 write_video_from_images(cam_path_scale_0, videoname_0)
+                
+
                 shutil.rmtree(cam_path_scale_0)
                 
                 cam_path_scale_1 = os.path.join(self.result_folder, 'scale_1', f"epoch{epoch}")
@@ -397,6 +448,7 @@ class RACNN_Trainer():
                 write_video_from_images(cam_path_scale_1, videoname_1)
                 shutil.rmtree(cam_path_scale_1)
 
+                draw_fig(self.log_folder)
                 h0.remove()
                 h1.remove()
 
