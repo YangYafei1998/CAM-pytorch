@@ -84,11 +84,37 @@ def image_sampler(image, theta, out_w=256, out_h=256):
     ## grid
     X = grid_X.repeat_interleave(B, dim=0)
     Y = grid_Y.repeat_interleave(B, dim=0)
-    X = (X + trans_x)*uni_scale
-    Y = (Y + trans_y)*uni_scale
+
+    print("is X cuda ? ", X.is_cuda)
+    print("is Y cuda ? ", Y.is_cuda)
+    print("is uniscale cuda ? ", uni_scale.is_cuda)
+    
+    print("is uniscale cuda ? ", (uni_scale.cpu()).is_cuda)
+
+    X = (X + trans_x)*(uni_scale.cpu())
+    Y = (Y + trans_y)*(uni_scale.cpu())
     grid = torch.cat((X, Y), dim=-1)
     return F.grid_sample(image, grid)
     
+def camforCount(weight_softmax, feature, img_path, theta=None):
+    # render the CAM and output
+    img = cv2.imread(img_path, -1) ## [H, W, C]
+    if theta is not None:
+        img_tensor = torch.from_numpy(img).type(torch.FloatTensor).unsqueeze(0)
+        print("img_tensor ", img_tensor)
+        print("img_tensor size ", img_tensor.size())
+        print("img_tensor is cuda? ", img_tensor.is_cuda)
+        print("theta is cuda? ", theta.is_cuda)
+        img_tensor = img_tensor.permute(0,3,1,2) ## [B, H, W, C] --> [B, C, H, W]
+        img_tensor = image_sampler(img_tensor, theta)
+        img = np.asarray(img_tensor.permute(0,2,3,1).squeeze(0)) ## [B, H, W, C] --> [H, W, C]
+    height, width, _ = img.shape
+    CAM = returnCAM(feature, weight_softmax)
+    CAM = cv2.resize(CAM, (width, height))
+    CAM = CAM/255
+    count = np.sum(CAM[0:height, 0:width])
+    return count
+
 
 # generate class activation mapping for the top1 prediction
 def returnCAM(feature_conv, weight_softmax):
@@ -115,6 +141,7 @@ class CAMDrawer():
         else:
             self.device = device
 
+        print("in cam_drawer.py, line 118 , device is ", self.device )
         self.save_folder =save_folder
         self.bar = bar
         self.W = img_width

@@ -2,24 +2,9 @@ from torch import nn
 import torch
 import torch.nn.functional as F
 import numpy as np
-from utils.cam_drawer import returnCAM,image_sampler
 import cv2
 
 
-def camforCount(weight_softmax, feature, img_path, theta=None):
-    # render the CAM and output
-    img = cv2.imread(img_path, -1) ## [H, W, C]
-    if theta is not None:
-        img_tensor = torch.from_numpy(img).type(torch.FloatTensor).unsqueeze(0)
-        img_tensor = img_tensor.permute(0,3,1,2) ## [B, H, W, C] --> [B, C, H, W]
-        img_tensor = image_sampler(img_tensor, theta)
-        img = np.asarray(img_tensor.permute(0,2,3,1).squeeze(0)) ## [B, H, W, C] --> [H, W, C]
-    height, width, _ = img.shape
-    CAM = returnCAM(feature, weight_softmax)
-    CAM = cv2.resize(CAM, (width, height))
-    CAM = CAM/255
-    count = np.sum(CAM[0:height, 0:width])
-    return count
 
 
 class TCLoss(nn.Module):

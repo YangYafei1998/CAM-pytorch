@@ -4,8 +4,8 @@ import os
 import tqdm
 from datetime import datetime
 import collections
-from utils.cam_drawer import CAMDrawer
-from models.loss import camforCount
+from utils.cam_drawer import CAMDrawer,camforCount
+
 import torch
 import torch.nn.functional as F
 
@@ -221,8 +221,13 @@ class RACNN_Trainer():
             leave=False):
         # for batch_idx, batch in enumerate(self.trainloader):
             data, target, idx = batch
+            print("batch size , may be 1?", data.shape[0])
+            print("access single target," , target[0])
+            # print("batch is ", batch)
+            # print("idx is ", idx.size())
             target = self.generate_confusion_target(target)
             
+            # data, target = data.to(self.device), target.to(self.device)
             data, target = data.to(self.device), target.to(self.device)
             
             B = data.shape[0]
@@ -259,21 +264,21 @@ class RACNN_Trainer():
 ##################################################################################################################################                
 
 
-              
-                weight_softmax_0_gt = weight_softmax_0[target, :]
-                weight_softmax_1_gt = weight_softmax_1[target, :]                 
+                print("target is", target)
+                weight_softmax_0_gt = weight_softmax_0[target.cpu(), :]
+                weight_softmax_1_gt = weight_softmax_1[target.cpu(), :]                 
                 probs_0 = F.softmax(out_0, dim=-1)
                 probs_1 = F.softmax(out_1, dim=-1)
-                gt_probs_0 = probs_0[list(range(B)), target.cpu()]
-                gt_probs_1 = probs_1[list(range(B)), target.cpu()]
+                gt_probs_0 = probs_0[list(range(B)), target]
+                gt_probs_1 = probs_1[list(range(B)), target]
                 img_path = self.trainloader.dataset.get_fname(idx)
 
                 print ("weight_softmax_0_gt, ",weight_softmax_0_gt)
-                print("self.model.conv_scale_0[-2] ", self.model.conv_scale_0[-2])
+                # print("self.model.conv_scale_0[-2] ", self.model.conv_scale_0[-2])
                 print("f_conv_0, ",f_conv_0)
                 print("img_path[0]",img_path[0] )
-                count0 = camforCount(weight_softmax=weight_softmax_0_gt, feature=f_conv_0[-1], img_path=img_path[0])
-                count1 = camforCount(weight_softmax=weight_softmax_1_gt, feature=f_conv_1[-1], img_path=img_path[0])
+                count0 = camforCount(weight_softmax=weight_softmax_0_gt, feature=f_conv_0[-1], theta=t_01,img_path=img_path[0])
+                count1 = camforCount(weight_softmax=weight_softmax_1_gt, feature=f_conv_1[-1], theta=t_01,img_path=img_path[0])
                 rank_loss = self.criterion.RankingLossDivideByCount(gt_probs_0, count0, gt_probs_1, count1, margin=self.margin)
                 # rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
                 rank_loss = rank_loss.sum()
@@ -415,10 +420,10 @@ class RACNN_Trainer():
                 accuracy_0.update(train_acc_0, 1)
                 accuracy_1.update(train_acc_1, 1)
 
-                if self.draw_cams and epoch % self.save_period == 0:
+                if self.draw_cams and epoch % self.save_period == 0  or epoch==0:
                     img_path = self.testloader.dataset.get_fname(idx)
                     # print(img_path)
-                    print("target ", target)
+                    print("##########################3target ", target)
                     weight_softmax_0_gt = weight_softmax_0[target, :]
                     weight_softmax_1_gt = weight_softmax_1[target, :]
                     self.drawer.draw_cam(
