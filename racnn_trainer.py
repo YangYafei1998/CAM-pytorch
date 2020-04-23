@@ -9,7 +9,7 @@ from utils.cam_drawer import CAMDrawer
 import torch
 import torch.nn.functional as F
 
-
+from utils.augmentation import DataAugmentation
 from utils.logger import AverageMeter
 from make_video import *
 
@@ -74,6 +74,8 @@ class RACNN_Trainer():
         else:
             self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4) 
             self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4) 
+
+        self.augmenter = DataAugmentation()
 
 
 
@@ -204,9 +206,15 @@ class RACNN_Trainer():
         # for batch_idx, batch in enumerate(self.trainloader):
             data, target, idx = batch
             target = self.generate_confusion_target(target)
+
+            ## data augmentation via imgaug
+            if self.trainloader.dataset.augmentation:
+                data = self.augmenter(data)
+                # print(data)
             
+            ## 
             data, target = data.to(self.device), target.to(self.device)
-            
+
             B = data.shape[0]
             H, W = data.shape[-2:] # [-2:]==[-2,-1]; [-2:-1] == [-2]
 
@@ -319,7 +327,6 @@ class RACNN_Trainer():
                     f_conv_1.append(output.data.cpu().numpy())
                 ## place hooker
                 h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
-                # h1 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_1)
                 h1 = self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
                 print("saving CAMs")
 

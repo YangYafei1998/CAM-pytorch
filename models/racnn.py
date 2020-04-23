@@ -47,6 +47,7 @@ class RACNN(nn.Module):
         
         self.num_classes = num_classes
         basemodel = models.resnet50(pretrained=True)
+        # basemodel = models.resnet18(pretrained=True)
         
         ## shared feature extractor
         self.base = nn.Sequential(
@@ -79,7 +80,8 @@ class RACNN(nn.Module):
 
         ## classification head for scale 0
         self.conv_scale_0 = nn.Sequential(
-            nn.Conv2d(1024, 512, kernel_size=1, bias=False),
+            nn.Conv2d(1024, 512, kernel_size=1, bias=False), ## resnet50
+            # nn.Conv2d(256, 512, kernel_size=1, bias=False), ## resnet18
             nn.Conv2d(512, 512, kernel_size=3, padding=1, bias=False),
             nn.ReLU(inplace=True)
             )
@@ -87,7 +89,8 @@ class RACNN(nn.Module):
 
         ## classification head for scale 1
         self.conv_scale_1 = nn.Sequential(
-            nn.Conv2d(1024, 512, kernel_size=1, bias=False),
+            nn.Conv2d(1024, 512, kernel_size=1, bias=False), ## resnet50
+            # nn.Conv2d(256, 512, kernel_size=1, bias=False), ## resnet18
             nn.Conv2d(512, 512, kernel_size=3, padding=1, bias=False),
             nn.ReLU(inplace=True)
             )
@@ -125,7 +128,7 @@ class RACNN(nn.Module):
             nn.Linear(14*14+self.num_classes, 3, bias=True),
             # nn.Linear(14*14, 3, bias=True),
             # nn.Tanh() ## tanh results seem to be worse
-            nn.Sigmoid() ## so-so
+            nn.Sigmoid() ## chosen
         ) 
 
         ## print the network architecture
@@ -170,18 +173,20 @@ class RACNN(nn.Module):
         if lvl == 0:
             # xconv = self.apn_map_scale_01(xconv)
             # xconv = xconv.flatten(start_dim=1)
-            # print(xconv.shape)
+            
+            ## channelwise pooling 
             B, C = xconv.shape[0:2]
             xconv = xconv.view(B, C, -1)
             xconv = xconv.permute(0,2,1)
             xconv = F.adaptive_avg_pool1d(xconv, 1).squeeze(2)
-            # print(xconv.shape)
-            # input()
+            
             if target is not None:
+                ## convert to one-hot
                 target_ = torch.FloatTensor(target.shape[0], self.num_classes).to(xconv.device)
                 target_.zero_()
                 target_.scatter_(1, target, 1)
                 xconv = torch.cat([xconv, target_], dim=-1)
+
             t = self.apn_map_flatten_01(xconv)
             # shift the sigmoid output to ( [-0.5,0.5], [-0.5,0.5], [0.4,0.8] ) 
             t = (t-shift)*scale
@@ -216,7 +221,6 @@ class RACNN(nn.Module):
         # # t0 = self.apn(f_gap_0, lvl=0) ## [B, 3]
         if target is None:
             target = torch.argmax(out_0, dim=-1).unsqueeze(1) ## [B, 1]
-
         t0 = self.apn_map(f_conv0, target, lvl=0) ## [B, 3]
         grid = self.grid_sampler(t0) ## [B, H, W, 2]
         x1 = F.grid_sample(x, grid, align_corners=False, padding_mode='reflection') ## [B, 3, H, W] sampled using grid parameters

@@ -20,8 +20,22 @@ from torchvision import datasets, transforms, utils
 import random
 import cv2
 
-from albumentations import GaussNoise, MotionBlur, MedianBlur, OneOf, Compose
+import imgaug.augmenters as iaa
 
+seq = iaa.Sequential([
+    iaa.Sometimes(
+        0.3,
+        iaa.OneOf(
+            [iaa.GaussianBlur(sigma=(0, 0.5)),
+            iaa.MotionBlur(),]
+        )
+    ),
+    iaa.Sometimes(
+        0.3,
+        iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.05*255), per_channel=0.5),
+    ),
+    iaa.Cutout(nb_iterations=(1, 5), size=0.2, squared=False)
+], random_order=True) # apply augmenters in random order
 
 ## Load images concated by flow and rgb images
 class ImageDataset():
@@ -30,6 +44,7 @@ class ImageDataset():
         self.is_training = is_training
         self.temporal_coherence = temporal_coherence
 
+        ##
         def file_getlines(filepath):
             with open(filepath) as fp:
                 line_list = []
@@ -41,39 +56,16 @@ class ImageDataset():
 
         self.image_files = file_getlines(image_path_file)
         self.image_labels = file_getlines(image_label_file)
-
-
+        
+        ##
         normalize = transforms.Normalize(
                 mean=[0.485, 0.456, 0.406],
                 std=[0.229, 0.224, 0.225]
         )
-
-        ## data augmentation
-        def image_augmentation(p=1.0):
-            return Compose(
-                [
-                    GaussNoise(var_limit=(10.0,50.0),mean=0,p=0.2),
-                    OneOf([
-                        MotionBlur(p=0.2),
-                        MedianBlur(blur_limit=3, p=0.1),
-                        Blur(blur_limit=3, p=0.1),
-                    ], p=0.2),
-                    CoarseDropout(max_holes=2, min_holes=0, max_height=15, max_width=15, p=0.3)
-                ]
-            )
-
         if not is_training:
             self.data_transforms = transforms.Compose([
                 transforms.Resize(256),
                 transforms.CenterCrop(224),
-                transforms.ToTensor(),
-                normalize
-            ])
-        elif augmentation:
-            self.data_transforms = transforms.Compose([
-                transforms.Resize(256),
-                transforms.RandomResizedCrop(224),
-                image_augmentation(1.0),
                 transforms.ToTensor(),
                 normalize
             ])
@@ -85,8 +77,7 @@ class ImageDataset():
                 normalize
             ])
             
-
-            
+        self.augmentation = augmentation
 
         # # prepare data
         # normalize = transforms.Normalize(
@@ -125,6 +116,7 @@ class ImageDataset():
             image = transforms.ToTensor(image)
             return image, img_target, idx
         else:
+            # print(image)
             image_aug = self.data_transforms(image)
             return image_aug, img_target, idx
 

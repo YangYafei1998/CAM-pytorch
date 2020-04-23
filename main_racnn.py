@@ -33,6 +33,8 @@ def main(config):
     WEIGHT_DECAY = config['weight_decay']
     EPOCH = config['max_epoch']
 
+    augmentation = config.get('augmentation', False)
+    print('augmentation: ', augmentation)
     # ## dataset
     # train_dataset = ImageDataset(
     #     'image_path_folder/train_image_list_sorted.txt', 
@@ -44,7 +46,9 @@ def main(config):
     train_dataset = ImageDataset(
         'image_path_folder_6/train_image_list_sorted_6.txt', 
         'image_path_folder_6/train_image_label_sorted_6.txt', 
-        is_training=True, temporal_coherence=temporal_coherence)
+        is_training=True, 
+        augmentation=augmentation,
+        temporal_coherence=temporal_coherence)
     config['temporal'] = temporal_coherence
 
 
@@ -65,7 +69,6 @@ def main(config):
         device = torch.device("cpu")
     print("RACNN with ResNet50")
     net = RACNN(num_classes=3, device=device)
-
 
     ## optimizer
     optimizer = torch.optim.SGD(net.parameters(), lr=LEARNING_RATE, momentum=0.9, weight_decay=WEIGHT_DECAY)
@@ -94,7 +97,7 @@ if __name__ == '__main__':
     parser.add_argument('-b', '--batch_size', default=None, type=int,
                         help='the size of each minibatch')
     parser.add_argument('--max_epoch', default=None, help='max epochs', type=int)
-    
+    parser.add_argument('--augmentation', action='store_true')
 
     parser.add_argument('-wd', '--weight_decay', default=None, type=float,
                         help='the size of each minibatch')
@@ -127,7 +130,8 @@ if __name__ == '__main__':
         config.set_content('max_epoch', args.max_epoch)
     if args.disable_workers:
         config.set_content('disable_workers', args.disable_workers)
-    
+    if args.augmentation:
+        config.set_content('augmentation', args.augmentation)
 
     ## hyperparameters
     if args.weight_decay is not None:
