@@ -25,7 +25,7 @@ from albumentations import GaussNoise, MotionBlur, MedianBlur, OneOf, Compose
 
 ## Load images concated by flow and rgb images
 class ImageDataset():
-    def __init__(self, image_path_file, image_label_file, is_training=True, augmentation=False, temporal_coherence=False):
+    def __init__(self, image_path_file, image_label_file, image_localization_file=None, is_training=True, temporal_coherence=False):
         
         self.is_training = is_training
         self.temporal_coherence = temporal_coherence
@@ -41,6 +41,8 @@ class ImageDataset():
 
         self.image_files = file_getlines(image_path_file)
         self.image_labels = file_getlines(image_label_file)
+        if image_localization_file is not None:
+            self.image_localization = file_getlines(image_localization_file)
 
 
         normalize = transforms.Normalize(
@@ -112,10 +114,13 @@ class ImageDataset():
 
     ## original
     def __getitem__(self, index):
-        if self.temporal_coherence:
-            return self.__getitem__coherence(index)
+        if self.is_training:
+            if self.temporal_coherence:
+                return self.__getitem__coherence(index)
+            else:
+                return self.__getitem__original(index)
         else:
-            return self.__getitem__original(index)
+            return self.__getitem__localization(index)
 
     def __getitem__original(self, idx):
         img_path, img_target = self.image_files[idx], self.image_labels[idx]
@@ -152,6 +157,17 @@ class ImageDataset():
         # input()
         return images_aug, img_targets, indices
 
+    def __getitem__localization(self, idx):
+        img_path, img_target, img_localization = self.image_files[idx], self.image_labels[idx], self.image_localization[idx]
+        img_target = torch.tensor(int(img_target)).type(torch.LongTensor)
+        image = Image.open(img_path)
+        if self.data_transforms is None:
+            image = transforms.ToTensor(image)
+            return image, img_target, idx, img_localization
+        else:
+            image_aug = self.data_transforms(image)
+            return image_aug, img_target, idx, img_localization
+    
     def get_data_with_idx(self, indices):
         batch_imgs=[]
         batch_targets=[]

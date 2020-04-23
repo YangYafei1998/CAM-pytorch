@@ -300,6 +300,7 @@ class RACNN_Trainer():
         accuracy_1 = AverageMeter()
 
         with torch.no_grad():
+            # if self.draw_cams:
             if self.draw_cams and epoch % self.save_period == 0:
                 ## weight
                 params_classifier_0 = list(self.model.classifier_0.parameters())
@@ -331,17 +332,15 @@ class RACNN_Trainer():
             #    ncols=80, 
             #    leave=False):
             for batch_idx, batch in enumerate(self.testloader):
-                data, target, idx = batch
-                # target = self.generate_confusion_target(target)
-
+                data, target, idx, locationGT = batch
                 data, target = data.to(self.device), target.to(self.device)
                 B = data.shape[0]
                 assert B == 1, "test batch size should be 1"
 
 
                 # data [B, C, H, W]
-                out_0, out_1, t_01, _ = self.model(data,target=None) ## [B, NumClasses]
-                print(f"{batch_idx}: GT: {target} // theta: {t_01}")
+                out_0, out_1, t_01 = self.model(data) ## [B, NumClasses]
+                # print(f"{batch_idx}: GT: {target} location: {locationGT} // theta: {t_01}")
 
                 ### Classification loss
                 cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
@@ -366,7 +365,7 @@ class RACNN_Trainer():
                 rank_loss_meter.update(rank_loss, 1)
                 accuracy_0.update(train_acc_0, 1)
                 accuracy_1.update(train_acc_1, 1)
-
+                # if self.draw_cams:
                 if self.draw_cams and epoch % self.save_period == 0:
                     img_path = self.testloader.dataset.get_fname(idx)
                     # print(img_path)
@@ -375,13 +374,13 @@ class RACNN_Trainer():
                     self.drawer.draw_cam(
                         epoch, gt_probs_0, target, 
                         weight_softmax_0_gt, f_conv_0[-1], 
-                        img_path[0], sub_folder='scale_0')
+                        img_path[0], GT = locationGT[0], sub_folder='scale_0')
                     self.drawer.draw_cam(
                         epoch, gt_probs_1, target, 
                         weight_softmax_1_gt, f_conv_1[-1], 
-                        img_path[0], theta=t_01.cpu(), sub_folder='scale_1')
+                        img_path[0], GT = locationGT[0], theta=t_01.cpu(), sub_folder='scale_1')
                     # input()
-
+            # if self.draw_cams:
             if self.draw_cams and epoch % self.save_period == 0:
                 timestamp = self.result_folder.split(os.sep)[-2]
 
