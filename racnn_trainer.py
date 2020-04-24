@@ -386,11 +386,11 @@ class RACNN_Trainer():
                     # print(img_path)
                     weight_softmax_0_gt = weight_softmax_0[target, :]
                     weight_softmax_1_gt = weight_softmax_1[target, :]
-                    self.drawer.draw_cam(
+                    self.drawer.draw_single_cam(
                         epoch, target, img_path[0], 
                         gt_probs_0, weight_softmax_0_gt, f_conv_0[-1], 
                         sub_folder='scale_0')
-                    self.drawer.draw_cam(
+                    self.drawer.draw_single_cam(
                         epoch, target, img_path[0], 
                         gt_probs_1, weight_softmax_1_gt, f_conv_1[-1], 
                         theta=t_01.cpu(), sub_folder='scale_1')

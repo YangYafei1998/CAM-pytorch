@@ -23,6 +23,35 @@ def ListDatatoCPU(list_data):
         cpu_list_data.append(d.cpu())
     return cpu_list_data
 
+## pt_float [-1.0, 1.0]
+## scaling [0,1.0]
+def attend_to_pt(x, pt_float, scaling):
+    assert x.shape[0] == pt_float.shape[0]
+    assert x.shape[0] == scaling.shape[0]
+
+    B, C, H, W = x.shape
+    grid_X, grid_Y = np.meshgrid(np.linspace(-1,1,W),np.linspace(-1,1,H))
+    grid_X = torch.Tensor(grid_X).unsqueeze(0).unsqueeze(3)
+    grid_Y = torch.Tensor(grid_Y).unsqueeze(0).unsqueeze(3)
+    grid = torch.cat([grid_X, grid_Y], dim=-1)
+    grid = grid.repeat([B, 1, 1, 1]).to(pt_float.device)
+
+    ## when pt is pixel point (x, y)
+    # size = torch.tensor([H//2, W//2])
+    # ctr = torch.tensor([H//2, W//2]).type(torch.FloatTensor)
+    # ctr = ctr.repeat([B, 1])
+    # offset = (ctr-pt)/size
+    offset = -1.0*pt_float
+    offset = offset.unsqueeze(1).unsqueeze(1)
+    ## grid_1 = grid_0 + ((x0,y0) - (x1,y1)) / (H/2, W/2)
+    grid_deform = (grid + offset)
+    scaling = scaling.unsqueeze(1).unsqueeze(1).unsqueeze(1)
+    # print("scaling shape", scaling.shape)
+    # print("grid_deform shape", grid_deform.shape)
+    grid_deform = grid_deform*scaling
+    out = F.grid_sample(x.to(pt_float.device), grid_deform, align_corners=True, padding_mode='zeros')
+    return out
+
 class RACNN3_Trainer():
 
     loss_config_list = {'classification':0, 'apn':1, 'whole':-1}
@@ -145,8 +174,12 @@ class RACNN3_Trainer():
 
     ## pre-train session
     def pretrain(self):
-        # self.pretrain_classification()
-        self.pretrain_apn()
+        
+        for _ in range(7):
+            self.pretrain_classification()
+        for i in range(3):
+            self.pretrain_apn(epoch=i)
+        self.test_pretrained_apn(epoch=2)
         print("Pre-train Finished")
 
 
@@ -166,7 +199,7 @@ class RACNN3_Trainer():
             log = self.train_one_epoch(epoch, 0)
             self.logger.info(log)
 
-            if epoch % self.interleaving_step == 0:
+            if epoch != 0 and epoch % self.interleaving_step == 0:
                 self.logger.info(f"APN\n")
                 log = self.train_one_epoch(epoch, 1)
                 self.logger.info(log)
@@ -389,29 +422,6 @@ class RACNN3_Trainer():
                         epoch, target, img_path[0], 
                         gt_probs_list, weight_softmax_list, f_conv_list, ListDatatoCPU(t_list))
 
-                    # # print(img_path)
-                    # lvl = 0
-                    # weight_softmax_gt = weight_softmax_list[lvl][target, :]
-                    # self.drawer.draw_cam(
-                    #     epoch, gt_probs_list[lvl], target, 
-                    #     weight_softmax_gt, f_conv_0[-1], 
-                    #     img_path[0], theta=None, sub_folder=f'scale_{lvl}')
-                
-                    # for lvl in range(1,self.lvls):
-                    #     weight_softmax_gt = weight_softmax_list[lvl][target, :]
-                    #     if lvl == 1: 
-                    #         f_conv = f_conv_1
-                    #     elif lvl == 2:
-                    #         f_conv = f_conv_2
-                    #     else:
-                    #         raise NotImplementedError
-
-                    #     self.drawer.draw_cam(
-                    #         epoch, gt_probs_list[lvl], target, 
-                    #         weight_softmax_gt, f_conv[-1], 
-                    #         img_path[0], lvl=lvl, theta=ListDatatoCPU(t_list), sub_folder=f'scale_{lvl}')
-                    
-
             if self.draw_cams and epoch % self.save_period == 0:
                 timestamp = self.result_folder.split(os.sep)[-2]
 
@@ -439,9 +449,10 @@ class RACNN3_Trainer():
     def pretrain_classification(self, max_epoch=1):
 
         print("pretran Classification")
+        loss_meter = AverageMeter()
+        acc_meter = AverageMeter()
 
         self.model.train()
-        self.optimizer.zero_grad()
         with torch.set_grad_enabled(True):
             for batch_idx, batch in tqdm.tqdm(
                 enumerate(self.trainloader), 
@@ -450,6 +461,10 @@ class RACNN3_Trainer():
                 ncols=80, 
                 leave=False):
             # for batch_idx, batch in enumerate(self.trainloader):
+
+                if batch_idx == 5: break
+
+                self.optimizer.zero_grad()
                 data, target, idx = batch
                 target = self.generate_confusion_target(target)
 
@@ -457,38 +472,56 @@ class RACNN3_Trainer():
                 B = data.shape[0]
 
                 # data [B, C, H, W]
-                out_0, out_1, t_01, _ = self.model(data, target=target.unsqueeze(1)) ## [B, NumClasses]
+                out_list, t_list = self.model(data, target=target.unsqueeze(1), train_config=0) ## [B, NumClasses]
 
                 ### Classification loss
-                cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
-                cls_loss = cls_loss_0.sum()
-
-                loss = cls_loss
+                cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_list[0], target, reduction='none')
+                loss = cls_loss_0.sum()
                 loss.backward()
                 self.optimizer.step()
+                
+                correct = (torch.max(out_list[0], dim=1)[1].view(target.size()).data == target.data).sum()
+                train_acc = 100. * correct / self.trainloader.batch_size
+                acc_meter.update(train_acc, 1)
+                loss_meter.update(loss)
+            
+            print("pretrain_classification loss: ", loss_meter.avg)
+            print("pretrain_classification acc: ", acc_meter.avg)
+
 
         return
 
 
     ##
-    def pretrain_apn(self, max_epoch=1):
-        
+    def pretrain_apn(self, epoch, max_epoch=1, b_draw_cams=False):
         print("pretran APN")
 
+        loss_meter = AverageMeter()
+
         self.model.train()
-        self.optimizer.zero_grad()
         with torch.set_grad_enabled(True):
             ## weight
-            params_classifier_0 = list(self.model.classifier_0.parameters())
-            ## -2 because we have bias in the classifier
-            weight_softmax_0 = params_classifier_0[-2].data
+            weight_softmax_list=[]
+            for lvl in range(self.lvls):
+                params_classifier = list(self.model.clsfierList[lvl].parameters())
+                weight_softmax_list.append(np.squeeze(params_classifier[-2].data.detach().cpu().numpy()))
             # hook the feature extractor instantaneously and remove it once data is hooked
-            f_conv_0 = []
+            # f_conv_0, f_conv_1, f_conv_2 = [], [], []
+            f_conv_list = []
             def hook_feature_conv_scale_0(module, input, output):
-                f_conv_0.clear()
-                f_conv_0.append(output.data)
+                f_conv_list.clear()
+                assert 0==len(f_conv_list)
+                f_conv_list.append(output.data.detach().cpu().numpy())
+            def hook_feature_conv_scale_1(module, input, output):
+                assert 1==len(f_conv_list)
+                f_conv_list.append(output.detach().cpu().numpy())
+            def hook_feature_conv_scale_2(module, input, output):
+                assert 2==len(f_conv_list)
+                f_conv_list.append(output.data.detach().cpu().numpy())
             ## place hooker
-            h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
+            h0 = self.model.convList[0][-2].register_forward_hook(hook_feature_conv_scale_0)
+            h1 = self.model.convList[1][-2].register_forward_hook(hook_feature_conv_scale_1)
+            h2 = self.model.convList[2][-2].register_forward_hook(hook_feature_conv_scale_2)
 
             for batch_idx, batch in tqdm.tqdm(
                 enumerate(self.trainloader), 
@@ -497,6 +530,10 @@ class RACNN3_Trainer():
                 ncols=80, 
                 leave=False):
             # for batch_idx, batch in enumerate(self.trainloader):
+
+                if batch_idx == 5: break
+
+                self.optimizer.zero_grad()
                 data, target, idx = batch
                 target = self.generate_confusion_target(target)
 
@@ -504,21 +541,138 @@ class RACNN3_Trainer():
                 B = data.shape[0]
 
                 # data [B, C, H, W]
-                out_0, out_1, t_01, _ = self.model(data, target=target.unsqueeze(1)) ## [B, NumClasses]
-
-                ### Classification loss
-                cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
-                cls_loss = cls_loss_0.sum()
+                out_list, t_list = self.model(data, target=target.unsqueeze(1), train_config=1) ## [B, NumClasses]
+                probs = F.softmax(out_list[lvl], dim=-1)
+                gt_probs = probs[list(range(B)), target]
 
                 ### get CAM peak
-                theta = self.get_cam_peak(f_conv_0[-1], weight_softmax_0[target,:])
-
-                loss = F.mse_loss(t_01, theta)
+                lvl = 0
+                feature = torch.from_numpy(f_conv_list[lvl])
+                class_weight = torch.from_numpy(weight_softmax_list[lvl])[target,:]
+                loss = self.compute_cam_area_in_box(feature, class_weight, t_list[lvl])
                 loss.backward()
                 self.optimizer.step()
+                loss_meter.update(loss.detach().item(), 1)
 
+            #     if b_draw_cams:
+            #         lvl = 0
+            #         img_path = self.trainloader.dataset.get_fname(idx)
+            #         weight_softmax_gt = weight_softmax_list[lvl][target.cpu(), :]
+            #         self.drawer.draw_multiple_cams_with_zoom_in_box(
+            #             epoch, target, img_path, 
+            #             gt_probs, weight_softmax_gt, f_conv_list[lvl], 
+            #             thetas=t_list[lvl].detach().cpu(), sub_folder=f'pretrain_apn_scale_{lvl}')
+
+            # if b_draw_cams and epoch % self.save_period == 0:
+            #     timestamp = self.result_folder.split(os.sep)[-2]
+            #     for lvl in range(self.lvls):
+            #         cam_path_scale = os.path.join(self.result_folder, f'pretrain_apn_scale_{lvl}', f"epoch{epoch}")
+            #         videoname = f'video_apn_epoch{epoch}_{timestamp}_scale{lvl}.avi'
+            #         videoname = os.path.join(self.result_folder, videoname)
+            #         write_video_from_images(cam_path_scale, videoname)
+            #         shutil.rmtree(cam_path_scale)
+            
+            ## end-for
+        print("pretrain_apn loss: ", loss_meter.avg)                    
+        h0.remove()
+        h1.remove()
+        h2.remove()
         return 
     
+    def test_pretrained_apn(self, epoch=None):
+        loss_meter = AverageMeter()
+        self.model.eval()
+        with torch.no_grad():
+            ## weight
+            weight_softmax_list=[]
+            for lvl in range(self.lvls):
+                params_classifier = list(self.model.clsfierList[lvl].parameters())
+                weight_softmax_list.append(np.squeeze(params_classifier[-2].data.cpu().numpy()))
+            # hook the feature extractor instantaneously and remove it once data is hooked
+            # f_conv_0, f_conv_1, f_conv_2 = [], [], []
+            f_conv_list = []
+            def hook_feature_conv_scale_0(module, input, output):
+                f_conv_list.clear()
+                assert 0==len(f_conv_list)
+                f_conv_list.append(output.data.cpu().numpy())
+            def hook_feature_conv_scale_1(module, input, output):
+                assert 1==len(f_conv_list)
+                f_conv_list.append(output.data.cpu().numpy())
+            def hook_feature_conv_scale_2(module, input, output):
+                assert 2==len(f_conv_list)
+                f_conv_list.append(output.data.cpu().numpy())
+            ## place hooker
+            h0 = self.model.convList[0][-2].register_forward_hook(hook_feature_conv_scale_0)
+            h1 = self.model.convList[1][-2].register_forward_hook(hook_feature_conv_scale_1)
+            h2 = self.model.convList[2][-2].register_forward_hook(hook_feature_conv_scale_2)
+
+            for batch_idx, batch in tqdm.tqdm(
+                enumerate(self.testloader), 
+                total=len(self.testloader),
+                desc='test pretrain_apn'+': ', 
+                ncols=80, 
+                leave=False):
+            # for batch_idx, batch in enumerate(self.trainloader):
+
+                
+                data, target, idx = batch
+                target = self.generate_confusion_target(target)
+
+                data, target = data.to(self.device), target.to(self.device)
+                B = data.shape[0]
+
+                # data [B, C, H, W]
+                out_list, t_list = self.model(data, target=target.unsqueeze(1), train_config=1) ## [B, NumClasses]
+                probs = F.softmax(out_list[lvl], dim=-1)
+                gt_probs = probs[list(range(B)), target]
+
+                ### get CAM peak
+                lvl = 0
+                feature = torch.from_numpy(f_conv_list[lvl])
+                class_weight = torch.from_numpy(weight_softmax_list[lvl])[target,:]
+                loss = self.compute_cam_area_in_box(feature, class_weight, t_list[lvl])
+                
+                loss_meter.update(loss.detach().item(), 1)
+
+                
+                lvl = 0
+                img_path = self.testloader.dataset.get_fname(idx)
+                weight_softmax_gt = weight_softmax_list[lvl][target.cpu(), :]
+
+                # epoch, gt_lbl, img_path, 
+                # prob, weight_softmax, feature, theta, 
+                # sub_folder=None, GT=None
+                self.drawer.draw_single_cam_and_zoom_in_box(
+                    epoch, target, img_path[0], 
+                    gt_probs, weight_softmax_gt, f_conv_list[lvl], theta=t_list[lvl][0].cpu(), 
+                    sub_folder=f'pretrain_apn_scale_{lvl}')
+
+            # if b_draw_cams and epoch % self.save_period == 0:
+            #     timestamp = self.result_folder.split(os.sep)[-2]
+            #     for lvl in range(self.lvls):
+            #         cam_path_scale = os.path.join(self.result_folder, f'pretrain_apn_scale_{lvl}', f"epoch{epoch}")
+            #         videoname = f'video_apn_epoch{epoch}_{timestamp}_scale{lvl}.avi'
+            #         videoname = os.path.join(self.result_folder, videoname)
+            #         write_video_from_images(cam_path_scale, videoname)
+            #         shutil.rmtree(cam_path_scale)
+            
+            ## end-for
+        print("pretrain_apn loss: ", loss_meter.avg)                    
+        h0.remove()
+        h1.remove()
+        h2.remove()
+
+    def compute_cam_area_in_box(self, feature, class_weight, box_theta):
+        B, C, H, W = feature.shape
+        class_weight = class_weight.reshape(B, 1, C)
+        act_map = class_weight.bmm(feature.view(B, C, -1)).reshape(B, 1, H, W)
+        x,y,s = box_theta[:,0], box_theta[:,1], box_theta[:,2]
+        xy = torch.stack([x,y], dim=1)
+        shift_map = attend_to_pt(act_map, xy, s)
+        scores = torch.sum(shift_map.flatten(start_dim=1), dim=1)
+        return -1.0*scores.sum()
+
+
     # generate class activation mapping for the top1 prediction
     # def returnCAM(feature_conv, weight_softmax):
     #     # generate the class activation maps upsample to 256x256
