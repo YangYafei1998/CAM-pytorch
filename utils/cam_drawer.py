@@ -5,9 +5,9 @@ from skimage.measure import label, regionprops
 # from keras import backend as K
 
 
-def write_text_to_img(img, text, color=(255, 255, 255), org=(30,50)):
+def write_text_to_img(img, text, color=(255, 255, 255), org=(30,50), fontScale = 0.5):
     font = cv2.FONT_HERSHEY_SIMPLEX 
-    fontScale = 0.5
+    fontScale = fontScale
     color = (255, 255, 255) 
     thickness = 1
     img = cv2.putText(img, text, org, font,  
@@ -68,9 +68,12 @@ def iou_box(boxA, boxB):
     # compute the intersection over union by taking the intersection
     # area and dividing it by the sum of prediction + ground-truth
     # areas - the interesection area
-    iou = interArea / float(boxAArea + boxBArea - interArea)
-    # return the intersection over union value
-    return iou
+    if boxAArea + boxBArea - interArea == 0:
+        return 0
+    else:
+        iou = interArea / float(boxAArea + boxBArea - interArea)
+        # return the intersection over union value
+        return iou
 
 def image_sampler(image, theta, out_w=256, out_h=256):
     B, C, H, W = image.shape
@@ -253,7 +256,53 @@ class CAMDrawer():
             y = int(line_coord[3])
             x_len = int(line_coord[4])
             y_len = int(line_coord[5])
-            gt_image[y:y+y_len, x:x+x_len] = 1
+            if theta is None:
+                gt_image[y:y+y_len, x:x+x_len] = 1
+            else:
+                print(theta)
+                new_center_x = (1 + theta[0][0] * theta[0][2]) * 128 
+                new_center_y = (1 + theta[0][1] * theta[0][2]) * 128
+                new_len = 256 * theta[0][2]
+                if (new_center_x - new_len/2).item() < 0:
+                    new_upper_left_x = 0
+                    border_x = (new_center_x - new_len/2).item()
+                    x = x - border_x
+                else:
+                    new_upper_left_x = (new_center_x - new_len/2).item()
+
+                if (new_center_y - new_len/2).item() < 0:
+                    new_upper_left_y = 0
+                    border_y = (new_center_y - new_len/2).item()
+                    y = y - border_y
+                else:
+                    new_upper_left_y = (new_center_y - new_len/2).item()
+                
+                if x - new_upper_left_x < 0:
+                    x_len = int((x_len + (x - new_upper_left_x))/theta[0][2])
+                    x = 0
+                else:
+                    x = int((x - new_upper_left_x)/theta[0][2])
+                    x_len = int(x_len/theta[0][2])
+
+                if y - new_upper_left_y < 0:
+                    y_len = int((y_len + (y - new_upper_left_y))/theta[0][2])
+                    y = 0
+                else:
+                    y = int((y - new_upper_left_y)/theta[0][2])
+                    y_len = int(y_len/theta[0][2])
+                    
+                # x = int(max((x - new_upper_left_x).item(), 0)/theta[0][2])
+                # y = int(max((y - new_upper_left_y).item(), 0)/theta[0][2])
+                # x_len = int(x_len/theta[0][2])
+                # y_len = int(y_len/theta[0][2])
+                # print('------DEBUG------')
+                # print(x)
+                # print(y)
+                # print(x_len)
+                # print(y_len)
+                # print(new_center_x)
+                # print(new_center_y)
+                gt_image[y:y+y_len, x:x+x_len] = 1
 
             coverted_heatmap = torch.from_numpy(CAM).float() + 1e-20
             coverted_heatmap = coverted_heatmap/torch.sum(coverted_heatmap)
@@ -350,6 +399,11 @@ class CAMDrawer():
             write_text_to_img(result, f"pixel_iou: {pixel_iou:.4f}", org=(30,110))
 
             cv2.rectangle(result,(x,y),(x+x_len,y+y_len),(0,255,0),2)
+            # if theta is not None:
+            #     cv2.rectangle(result,(new_upper_left_x,new_upper_left_y),(new_upper_left_x+250, new_upper_left_y+250),(0,255,0),2)
+            #     cv2.rectangle(result,(new_center_x,new_center_y),(new_center_x+128, new_center_y+128),(0,255,0),2)
+            #     cv2.rectangle(result,(0,0),(0+128, 0+128),(0,255,0),2)
+
 
         img_filename = os.path.basename(img_path)[:-4]
         output_img_path = os.path.join(save_folder, img_filename+'_'+self.classes[gt_lbl[0].item()]+'_cam.jpg')

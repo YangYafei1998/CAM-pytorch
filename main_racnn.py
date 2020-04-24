@@ -52,10 +52,10 @@ def main(config):
         augmentation=augmentation,
         temporal_coherence=temporal)
 
-
     test_dataset = ImageDataset(
         'image_path_folder/test_image_list_sorted.txt', 
         'image_path_folder/test_image_label_sorted.txt', 
+        'image_path_folder/localizationGT.txt',
         is_training=False)
 
     ## network
