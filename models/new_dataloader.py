@@ -136,7 +136,6 @@ class ImageDataset():
             image = Image.open(img_path)
             images_aug.append(self.data_transforms(image))
 
-
         img_targets = torch.stack(img_targets, dim=0)
         # print(img_targets.shape)
         images_aug = torch.stack(images_aug, dim=0)

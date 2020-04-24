@@ -61,9 +61,9 @@ class RACNN_Trainer():
         self.interleaving_step = config['interleave']
         self.margin = config['margin']
         self.max_epoch = config['max_epoch']
-        self.time_consistency = config.get('temporal', False) ## default is fault
+        self.time_consistency = config.get('temporal', False) ## default is false
         if self.time_consistency:
-            self.consistency_weight = config['temp_consistency_weight']
+            self.tc_weight = config['temp_consistency_weight']
 
         self.save_period = config['ckpt_save_period']
         batch_size = config['batch_size']
@@ -194,6 +194,7 @@ class RACNN_Trainer():
         cls_loss_meter = AverageMeter()
         rank_loss_meter = AverageMeter()
         info_loss_meter = AverageMeter()
+        temp_loss_meter = AverageMeter()
         accuracy_0 = AverageMeter()
         accuracy_1 = AverageMeter()
 
@@ -238,24 +239,25 @@ class RACNN_Trainer():
                 cls_loss = cls_loss_0.sum() + cls_loss_1.sum()
                 
                 ### Ranking loss
-                # B3 = out_0.shape[0]
+                B_out = out_0.shape[0] ## if temporal_coherence, B_out = B*3
                 probs_0 = F.softmax(out_0, dim=-1)
                 probs_1 = F.softmax(out_1, dim=-1)
-                gt_probs_0 = probs_0[list(range(B)), target]
-                gt_probs_1 = probs_1[list(range(B)), target]
+                gt_probs_0 = probs_0[list(range(B_out)), target]
+                gt_probs_1 = probs_1[list(range(B_out)), target]
                 rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
                 rank_loss = rank_loss.sum()
 
-                # ### Temporal coherence
-                # if self.time_consistency:
-                #     temp_loss = 0.0
-                #     out_0 = out_0.view(B, 3, 3)
-                #     out_1 = out_1.view(B, 3, 3)
-                #     target = target.view(B, 3)
-                #     # t_01 = t_01.view(B, 3)
-                #     # f_gap_1 = f_gap_1.view(B, 3)
-                #     temp_loss += self.criterion.TemporalConsistencyLoss(out_0[0], out_0[1], out_0[2])
-                #     temp_loss += self.criterion.TemporalConsistencyLoss(out_1[0], out_1[1], out_1[2])
+                ### Temporal coherence
+                if self.time_consistency:
+                    temp_loss = 0.0
+                    conf_0 = self.criterion.ComputeEntropyAsWeight(out_0).view(B, 3)
+                    conf_1 = self.criterion.ComputeEntropyAsWeight(out_1).view(B, 3)
+                    ## [0::3] staring from 0, get every another three elements
+                    temp_loss_0 = self.criterion.TemporalConsistencyLoss(out_0[0::3], out_0[1::3], out_0[2::3], reduction='none')
+                    temp_loss_1 = self.criterion.TemporalConsistencyLoss(out_1[0::3], out_1[1::3], out_1[2::3], reduction='none')
+                    # temp_loss += (temp_loss_0*(conf_0**2) + (1-conf_0)**2).sum()
+                    # temp_loss += (temp_loss_1*(conf_1**2) + (1-conf_1)**2).sum()
+                    temp_loss = temp_loss_0.sum() + temp_loss_1.sum()
 
                 # print("gt_probs_0: ", gt_probs_0)
                 # print("gt_probs_1: ", gt_probs_1)
@@ -263,14 +265,16 @@ class RACNN_Trainer():
                 # print("info_loss: ", info_loss)
                 # print("cls_loss: ", cls_loss)
 
+                loss = 0.0
                 if loss_config == 0: ##'classification'
-                    loss = cls_loss
+                    loss += cls_loss
                 elif loss_config == 1: ##'apn'
-                    loss = rank_loss
+                    loss += rank_loss
                 else: ##'whole'
-                    loss = rank_loss + cls_loss + info_loss
-                    if self.time_consistency:
-                        loss += 0.1*temp_loss
+                    loss += (rank_loss + cls_loss + info_loss)
+                
+                if self.time_consistency:
+                    loss += self.tc_weight*temp_loss
 
                 loss.backward()
                 self.optimizer.step()
@@ -279,13 +283,15 @@ class RACNN_Trainer():
                 # print(out_0.shape)
                 # print(target.shape)
                 correct_0 = (torch.max(out_0, dim=1)[1].view(target.size()).data == target.data).sum()
-                train_acc_0 = 100. * correct_0 / self.trainloader.batch_size
+                train_acc_0 = 100. * correct_0 / B_out
                 correct_1 = (torch.max(out_1, 1)[1].view(target.size()).data == target.data).sum()
-                train_acc_1 = 100. * correct_1 / self.trainloader.batch_size
+                train_acc_1 = 100. * correct_1 / B_out
                 
                 loss_meter.update(loss, 1)
                 cls_loss_meter.update(cls_loss, 1)
                 rank_loss_meter.update(rank_loss, 1)
+                if self.time_consistency:
+                    temp_loss_meter.update(temp_loss, 1)
                 # info_loss_meter.update(info_loss, 1)
                 accuracy_0.update(train_acc_0, 1)
                 accuracy_1.update(train_acc_1, 1)
@@ -294,6 +300,7 @@ class RACNN_Trainer():
         return {
             'cls_loss': cls_loss_meter.avg, 'cls_acc_0': accuracy_0.avg, 'cls_acc_1': accuracy_1.avg, 
             'rank_loss': rank_loss_meter.avg, 
+            'temp_loss': temp_loss_meter.avg,
             # 'info_loss': info_loss_meter.avg,
             'total_loss': loss_meter.avg
             }
@@ -344,7 +351,6 @@ class RACNN_Trainer():
                 data, target = data.to(self.device), target.to(self.device)
                 B = data.shape[0]
                 assert B == 1, "test batch size should be 1"
-
 
                 # data [B, C, H, W]
                 out_0, out_1, t_01, _ = self.model(data,target=None) ## [B, NumClasses]
