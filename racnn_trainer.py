@@ -111,7 +111,7 @@ class RACNN_Trainer():
 
 
     ## save checkpoint including model and other relevant information
-    def _save_checkpoint(self, epoch, save_best=False):
+    def _save_checkpoint(self, epoch, save_best=False, pretrain_ckp=False):
         arch = type(self.model).__name__
         state = {
             'model': arch,
@@ -120,10 +120,16 @@ class RACNN_Trainer():
             'optimizer': self.optimizer.state_dict(),
             'config': self.config
         }
-        filename = os.path.join(
-            self.ckpt_folder,
-            'checkpoint-epoch{}.pth'.format(epoch)
-        )
+        if pretrain_ckp:
+            filename = os.path.join(
+                self.ckpt_folder,
+                'pretrain-checkpoint-epoch{}.pth'.format(epoch)
+            )
+        else:
+            filename = os.path.join(
+                self.ckpt_folder,
+                'checkpoint-epoch{}.pth'.format(epoch)
+            )
         torch.save(state, filename)
         self.logger.info("Saving checkpoint: {} ...".format(filename))
         if save_best:
@@ -136,33 +142,36 @@ class RACNN_Trainer():
     def _resume_checkpoint(self, resume_path, load_pretrain=False):
         self.logger.info("Loading checkpoint: {} ...".format(resume_path))
         checkpoint = torch.load(resume_path)
+        print(checkpoint['config'])
         if not load_pretrain:
             self.start_epoch = checkpoint['epoch'] + 1
         
         # self.mnt_best = checkpoint['monitor_best']
 
         # load architecture params from checkpoint.
-        if checkpoint['config']['model'] != self.config['model']:
-            msg = ("Warning: Architecture configuration given in config file is"
-                   " different from that of checkpoint."
-                   " This may yield an exception while state_dict is being loaded.")
-            self.logger.warning(msg)
         self.model.load_state_dict(checkpoint['state_dict'], strict=False)
+        # if checkpoint['config']['model'] != self.config['model']:
+        #     msg = ("Warning: Architecture configuration given in config file is"
+        #            " different from that of checkpoint."
+        #            " This may yield an exception while state_dict is being loaded.")
+        #     self.logger.warning(msg)
+        # else:
+        #     self.model.load_state_dict(checkpoint['state_dict'], strict=False)
 
-        if not load_pretrain:
-            # uncomment this line if you want to use the resumed optimizer
-            # load optimizer state from checkpoint only when optimizer type is not changed.
-            ckpt_opt_type = checkpoint['config']['optimizer']['type']
-            if ckpt_opt_type != self.config['optimizer']['type']:
-                msg = ("Warning: Optimizer type given in config file is different from"
-                    "that of checkpoint.  Optimizer parameters not being resumed.")
-                self.logger.warning(msg)
-            else:
-                self.optimizer.load_state_dict(checkpoint['optimizer'])
+        # if not load_pretrain:
+        #     # uncomment this line if you want to use the resumed optimizer
+        #     # load optimizer state from checkpoint only when optimizer type is not changed.
+        #     ckpt_opt_type = checkpoint['config']['optimizer']['type']
+        #     if ckpt_opt_type != self.config['optimizer']['type']:
+        #         msg = ("Warning: Optimizer type given in config file is different from"
+        #             "that of checkpoint.  Optimizer parameters not being resumed.")
+        #         self.logger.warning(msg)
+        #     else:
+        #         self.optimizer.load_state_dict(checkpoint['optimizer'])
 
-        # self.logger = checkpoint['logger']
-        msg = "Checkpoint '{}' (epoch {}) loaded"
-        self.logger.info(msg .format(resume_path, self.start_epoch))
+        # # self.logger = checkpoint['logger']
+        # msg = "Checkpoint '{}' (epoch {}) loaded"
+        # self.logger.info(msg .format(resume_path, self.start_epoch))
         if not load_pretrain:
             print("load to resume")
         else:
@@ -170,9 +179,10 @@ class RACNN_Trainer():
 
     ## pre-train session
     def pretrain(self):
-        # for _ in range(0, 5):
-            # self.pretrain_classification()
-        for _ in range(2):
+        # for i in range(0, 5):
+        #     self.pretrain_classification()
+        #     self._save_checkpoint(i, pretrain_ckp=True)
+        for _ in range(6):
             self.pretrain_apn()
         print("Pre-train Finished")
 
@@ -256,7 +266,7 @@ class RACNN_Trainer():
                     data = data.view(B*3, 3, H, W)
                     target = target.view(B*3)
 
-                out_0, out_1, t_01, f_gap_1 = self.model(data, target.unsqueeze(1), loss_config) ## [B, NumClasses]
+                out_0, out_1, t_01, f_gap_1 = self.model(data, target.unsqueeze(1)) ## [B, NumClasses]
                 
                 # print("theta: ", t_01)
                 
@@ -341,6 +351,7 @@ class RACNN_Trainer():
         with torch.no_grad():
             # if self.draw_cams:
             if self.draw_cams and epoch % self.save_period == 0:
+                self._save_checkpoint(epoch)
                 ## weight
                 params_classifier_0 = list(self.model.classifier_0.parameters())
                 params_classifier_1 = list(self.model.classifier_1.parameters())
@@ -446,25 +457,24 @@ class RACNN_Trainer():
 
     ##
     def pretrain_classification(self, max_epoch=5):
-
         print("pretran Classification")
 
         self.model.train()
-        self.optimizer.zero_grad()
-        with torch.set_grad_enabled(True):
-            for batch_idx, batch in tqdm.tqdm(
-                enumerate(self.trainloader), 
-                total=len(self.trainloader),
-                desc='pretrain_cls'+': ', 
-                ncols=80, 
-                leave=False):
-            # for batch_idx, batch in enumerate(self.trainloader):
-                data, target, idx = batch
-                target = self.generate_confusion_target(target)
+        for batch_idx, batch in tqdm.tqdm(
+            enumerate(self.trainloader), 
+            total=len(self.trainloader),
+            desc='pretrain_cls'+': ', 
+            ncols=80, 
+            leave=False):
+        # for batch_idx, batch in enumerate(self.trainloader):
+            data, target, idx = batch
+            target = self.generate_confusion_target(target)
 
-                data, target = data.to(self.device), target.to(self.device)
-                B = data.shape[0]
+            data, target = data.to(self.device), target.to(self.device)
+            B = data.shape[0]
 
+            self.optimizer.zero_grad()
+            with torch.set_grad_enabled(True):
                 # data [B, C, H, W]
                 out_0, out_1, t_01, _ = self.model(data, target=target.unsqueeze(1)) ## [B, NumClasses]
 
@@ -481,75 +491,73 @@ class RACNN_Trainer():
 
     ##
     def pretrain_apn(self, max_epoch=3):
-        
         print("pretran APN")
 
+        loss_meter = AverageMeter()
+
         self.model.train()
-        self.optimizer.zero_grad()
-        # with torch.no_grad():
-        with torch.set_grad_enabled(True):
-            ## weight
-            params_classifier_0 = list(self.model.classifier_0.parameters())
-            ## -2 because we have bias in the classifier
-            # weight_softmax_0 = params_classifier_0[-2].data.cpu().numpy() 
-            weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
+        ## weight
+        params_classifier_0 = list(self.model.classifier_0.parameters())
+        ## -2 because we have bias in the classifier
+        # weight_softmax_0 = params_classifier_0[-2].data.cpu().numpy() 
+        weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
 
-            # hook the feature extractor instantaneously and remove it once data is hooked
-            f_conv_0 = []
-            def hook_feature_conv_scale_0(module, input, output):
-                f_conv_0.clear()
-                f_conv_0.append(output.data.data.cpu().numpy())
-            ## place hooker
-            h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
+        # hook the feature extractor instantaneously and remove it once data is hooked
+        f_conv_0 = []
+        def hook_feature_conv_scale_0(module, input, output):
+            f_conv_0.clear()
+            f_conv_0.append(output.data.data.cpu().numpy())
+        ## place hooker
+        h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
+        # print(len(f_conv_0))
+        for batch_idx, batch in tqdm.tqdm(
+            enumerate(self.pretrainloader), 
+            total=len(self.pretrainloader),
+            desc='pretrain_apn'+': ', 
+            ncols=80, 
+            leave=False):
+        # for batch_idx, batch in enumerate(self.trainloader):
+            data, target, idx, _ = batch
+            img_path = self.testloader.dataset.get_fname(idx)
+            img = cv2.imread(img_path[0], -1) ## [H, W, C]
+            target = self.generate_confusion_target(target)
 
-            for batch_idx, batch in tqdm.tqdm(
-                enumerate(self.pretrainloader), 
-                total=len(self.pretrainloader),
-                desc='pretrain_apn'+': ', 
-                ncols=80, 
-                leave=False):
-            # for batch_idx, batch in enumerate(self.trainloader):
-                data, target, idx, _ = batch
-                img_path = self.testloader.dataset.get_fname(idx)
-                img = cv2.imread(img_path[0], -1) ## [H, W, C]
-                target = self.generate_confusion_target(target)
+            data, target = data.to(self.device), target.to(self.device)
+            B = data.shape[0]
 
-                data, target = data.to(self.device), target.to(self.device)
-                B = data.shape[0]
-
+            self.optimizer.zero_grad()
+            with torch.set_grad_enabled(True):
                 # data [B, C, H, W]
                 out_0, out_1, t_01, _ = self.model(data, target=target.unsqueeze(1), train_config=1) ## [B, NumClasses]
-
+                ### get cropped region calculated by the APN
+                out_len = 256 * t_01[0][2]
+                out_center_x = (1 + t_01[0][0]) * 128
+                out_center_y = (1 + t_01[0][1]) * 128
                 ### get CAM peak
                 coordinate, heatmap = self.get_cam_peak(f_conv_0[-1], weight_softmax_0[target,:])
                 cam = heatmap * 0.3 + img * 0.5
-                cv2.rectangle(cam, (coordinate[1], coordinate[0]), (coordinate[3], coordinate[2]), (0, 0, 255), 2)
-                # print('coordinate')
-                # print(coordinate)
+                cv2.rectangle(cam, (coordinate[1], coordinate[0]), (coordinate[3], coordinate[2]), (0, 255, 0), 2)#peak activation region
+                cv2.rectangle(cam, (out_center_x - out_len/2, out_center_x - out_len/2), (out_center_x + out_len/2, out_center_x + out_len/2), (0, 0, 255), 2) # cropped region by APN
+
                 center_x = (coordinate[1]+coordinate[3])/2
                 cam_x = (center_x - 128)/128
                 center_y = (coordinate[0]+coordinate[2])/2
                 cam_y = (center_y - 128)/128
                 cam_l = (coordinate[3]-coordinate[1]+coordinate[2]-coordinate[0])/(2*256)
-                # print(cam_x)
-                # print(cam_y)
-                # print(cam_l)
-                # print('t_01')
-                # print(t_01)
 
                 target_pos = torch.FloatTensor(np.array([cam_x, cam_y, cam_l]))
-                # print('target_pos')
-                # print(target_pos)
+
                 write_text_to_img(cam, f"target: {target}", org=(20,50), fontScale = 0.3)
                 write_text_to_img(cam, f"t_01: {t_01}", org=(20,65), fontScale = 0.3)
                 write_text_to_img(cam, f"target: {target_pos}", org=(20,80), fontScale = 0.3)
                 cv2.imwrite('/userhome/30/yfyang/CAM-pytorch/saved/debug/'+f'{int(time.time())}.jpg', cam)
                 
-                loss = F.smooth_l1_loss(t_01, target_pos.cuda())
-                print(loss)
+                loss = F.mse_loss(t_01[0], target_pos.cuda())
+                ##print(loss)
                 loss.backward()
                 self.optimizer.step()
-
+                loss_meter.update(loss.item())
+        print(loss_meter.avg)
         return 
     
     # generate class activation mapping for the top1 prediction
@@ -568,6 +576,7 @@ class RACNN_Trainer():
     def get_cam_peak(self, feature, weight_softmax):
         # cam = returnCAM(feature.detach().cpu().numpy(), weight_softmax.detach().cpu().numpy())
         cam = returnCAM(feature, weight_softmax)
+        cv2.imwrite('test.jpg', cam)
         image = cv2.resize(cam, (256, 256))
         prop = generate_bbox(image, 0.8)
         heatmap = cv2.applyColorMap(image, cv2.COLORMAP_JET)
