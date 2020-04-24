@@ -104,13 +104,13 @@ class ImageDataset():
 
     ## original
     def __getitem__(self, index):
-        if self.is_training:
-            if self.temporal_coherence:
-                return self.__getitem__coherence(index)
-            else:
-                return self.__getitem__original(index)
+        # if self.is_training:
+        if self.temporal_coherence:
+            return self.__getitem__coherence(index)
         else:
-            return self.__getitem__localization(index)
+            return self.__getitem__original(index)
+        # else:
+        #     return self.__getitem__localization(index)
 
     def __getitem__original(self, idx):
         img_path, img_target = self.image_files[idx], self.image_labels[idx]
