@@ -558,6 +558,9 @@ class RACNN_Trainer():
                 self.optimizer.step()
                 loss_meter.update(loss.item())
         print(loss_meter.avg)
+        
+        h0.remove()
+
         return 
     
     # generate class activation mapping for the top1 prediction
