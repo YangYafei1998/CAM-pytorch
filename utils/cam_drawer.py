@@ -93,9 +93,8 @@ def image_sampler(image, theta, out_w=256, out_h=256):
 # generate class activation mapping for the top1 prediction
 def returnCAM(feature_conv, weight_softmax):
     # generate the class activation maps upsample to 256x256
-    size_upsample = (256, 256)
+    # size_upsample = (256, 256)
     bz, nc, h, w = feature_conv.shape
-    # print(weight_softmax.shape)
     cam = weight_softmax.dot(feature_conv.reshape((nc, h*w)))
     cam = cam.reshape(h, w)
     cam = cam - np.min(cam)
@@ -119,8 +118,22 @@ class CAMDrawer():
         self.W = img_width
         self.H = img_height
         
+    def draw_cam_at_different_scales(
+        self, epoch, gt_lbl, img_path, 
+        prob_list, weight_softmax_list, feature_list, theta_list, 
+        sub_folder=None, GT=None, logit=None):
+        
+        lvls = len(prob_list)
+        assert len(weight_softmax_list) == lvls
+        assert len(feature_list) == lvls
+        assert len(theta_list)+1 == lvls
 
-    def draw_cam(self, epoch, prob, idx, weight_softmax, feature, img_path, theta=None, sub_folder=None, GT=None, logit=None):
+        for lvl in range(lvls):
+            self.draw_cam(
+                epoch, gt_lbl, img_path, 
+                prob_list[lvl], weight_softmax_list[lvl][gt_lbl,:], feature_list[lvl], theta_list, sub_folder = f"scale_{lvl}")
+
+    def draw_cam(self, epoch, gt_lbl, img_path, prob, weight_softmax, feature, lvl=0, theta=None, sub_folder=None, GT=None, logit=None):
         ## compute softmax probablity
         save_folder = self.save_folder
         if sub_folder is not None:
@@ -129,16 +142,23 @@ class CAMDrawer():
         if not os.path.exists(save_folder):
             os.makedirs(save_folder)
 
-        # h_x = F.softmax(logit, dim=1).data.squeeze()
-        # probs, idx = h_x.sort(0, True)
-        
         # render the CAM and output
         img = cv2.imread(img_path, -1) ## [H, W, C]
         if theta is not None:
-            img_tensor = torch.from_numpy(img).type(torch.FloatTensor).unsqueeze(0)
-            img_tensor = img_tensor.permute(0,3,1,2) ## [B, H, W, C] --> [B, C, H, W]
-            img_tensor = image_sampler(img_tensor, theta)
-            img = np.asarray(img_tensor.permute(0,2,3,1).squeeze(0)) ## [B, H, W, C] --> [H, W, C]
+            if isinstance(theta, list):
+                assert lvl <= len(theta), "Error: lvl should be no greater than len(theta)"
+                img_tensor = torch.from_numpy(img).type(torch.FloatTensor).unsqueeze(0)
+                img_tensor = img_tensor.permute(0,3,1,2) ## [B, H, W, C] --> [B, C, H, W]
+                for l in range(lvl):
+                    img_tensor = image_sampler(img_tensor, theta[l])
+                img = np.asarray(img_tensor.permute(0,2,3,1).squeeze(0)) ## [B, H, W, C] --> [H, W, C]
+            else:
+                assert lvl == 0, "Error: theta is not a list!"        
+                img_tensor = torch.from_numpy(img).type(torch.FloatTensor).unsqueeze(0)
+                img_tensor = img_tensor.permute(0,3,1,2) ## [B, H, W, C] --> [B, C, H, W]
+                img_tensor = image_sampler(img_tensor, theta)
+                img = np.asarray(img_tensor.permute(0,2,3,1).squeeze(0)) ## [B, H, W, C] --> [H, W, C]
+            
 
         height, width, _ = img.shape
         # CAMs = returnCAM(features_blobs[-1], weight_softmax, 0)
@@ -149,7 +169,7 @@ class CAMDrawer():
 
         # get original image
         result = heatmap * 0.3 + img * 0.5
-        write_text_to_img(result, f"prediction: {self.classes[idx]}", org=(30,50))
+        write_text_to_img(result, f"prediction: {self.classes[gt_lbl]}", org=(30,50))
         write_text_to_img(result, f"confidence: {prob.item():.2f}", org=(30,65))
         
         #generate bbox from CAM 
@@ -165,7 +185,6 @@ class CAMDrawer():
             y_len = int(line_coord[5])
             gt_image[y:y+y_len, x:x+x_len] = 1
 
-            
             coverted_heatmap = torch.from_numpy(CAM).float() + 1e-20
             coverted_heatmap = coverted_heatmap/torch.sum(coverted_heatmap)
             coverted_gt = torch.from_numpy(gt_image).float() + 1e-20
@@ -189,7 +208,7 @@ class CAMDrawer():
             cv2.rectangle(result,(x,y),(x+x_len,y+y_len),(0,255,0),2)
 
         img_filename = os.path.basename(img_path)[:-4]
-        output_img_path = os.path.join(save_folder, img_filename+'_'+self.classes[idx[0].item()]+'_cam.jpg')
+        output_img_path = os.path.join(save_folder, img_filename+'_'+self.classes[gt_lbl[0].item()]+'_cam.jpg')
 
         cv2.imwrite(output_img_path, result)
         # print(f"save cam to {output_img_path}")

@@ -16,16 +16,22 @@ from make_video import *
 import shutil
 
 # from trainer import Trainer
+def ListDatatoCPU(list_data):
+    assert isinstance(list_data, list)
+    cpu_list_data = []
+    for d in list_data:
+        cpu_list_data.append(d.cpu())
+    return cpu_list_data
 
-
-class RACNN_Trainer():
+class RACNN3_Trainer():
 
     loss_config_list = {'classification':0, 'apn':1, 'whole':-1}
 
     def __init__(self, model, optimizer, lr_scheduler, criterion, train_dataset, test_dataset, logger, config):
         
         self.loss_config = 'whole'
-        
+        self.lvls = model.lvls 
+
         ## 
         self.config = config
         self.logger = logger
@@ -149,7 +155,7 @@ class RACNN_Trainer():
         if max_epoch is not None:
             self.max_epoch = max_epoch
 
-        self.test_one_epoch(0)
+        # self.test_one_epoch(0)
 
         for epoch in range(max_epoch):
             ## training
@@ -164,15 +170,6 @@ class RACNN_Trainer():
                 self.logger.info(f"APN\n")
                 log = self.train_one_epoch(epoch, 1)
                 self.logger.info(log)
-
-            # if epoch % 7 == 5 or epoch % 7 == 6:
-            #     self.logger.info(f"APN")
-            #     log = self.train_one_epoch(epoch, 1)
-            #     self.logger.info(log)
-            # else:
-            #     self.logger.info(f"Classification")
-            #     log = self.train_one_epoch(epoch, 0)
-            #     self.logger.info(log)
                 
             ## call after the optimizer
             if self.lr_scheduler is not None:
@@ -197,9 +194,10 @@ class RACNN_Trainer():
         rank_loss_meter = AverageMeter()
         info_loss_meter = AverageMeter()
         temp_loss_meter = AverageMeter()
-        accuracy_0 = AverageMeter()
-        accuracy_1 = AverageMeter()
-
+        acc_list = []
+        for _ in range(self.lvls):
+            acc_list.append(AverageMeter())
+        
         for batch_idx, batch in tqdm.tqdm(
             enumerate(self.trainloader), 
             total=len(self.trainloader),
@@ -228,43 +226,34 @@ class RACNN_Trainer():
                     data = data.view(B*3, 3, H, W)
                     target = target.view(B*3)
 
-                out_0, out_1, t_01, f_gap_1 = self.model(data, target.unsqueeze(1), loss_config) ## [B, NumClasses]
-                # print("theta: ", t_01)
+                out_list, t_list = self.model(data, target.unsqueeze(1), loss_config) ## [B, NumClasses]
                 
-                # ### infoNCE loss
-                # info_loss = self.criterion.ContrastiveLoss(f_gap_1)
-
                 ### Classification loss
-                cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
-                cls_loss_1, preds_1 = self.criterion.ImgLvlClassLoss(out_1, target, reduction='none')
-                cls_loss = cls_loss_0.sum() + cls_loss_1.sum()
-                
+                cls_loss = 0.0
+                temp_loss = 0.0
+                for lvl in range(len(out_list)):
+                    cls_loss += self.criterion.ImgLvlClassLoss(out_list[lvl], target, reduction='none')[0].sum()
+                    
+                    ### Temporal coherence
+                    if self.time_consistency:
+                        # conf_0 = self.criterion.ComputeEntropyAsWeight(out_0).view(B, 3)
+                        # conf_1 = self.criterion.ComputeEntropyAsWeight(out_1).view(B, 3)
+                        ## [0::3] staring from 0, get every another three elements
+                        temp_loss += self.criterion.TemporalConsistencyLoss(
+                            out_list[lvl][0::3], out_list[lvl][1::3], out_list[lvl][2::3], reduction='none').sum()
+                        # temp_loss += (temp_loss_0*(conf_0**2) + (1-conf_0)**2).sum()
+                        # temp_loss += (temp_loss_1*(conf_1**2) + (1-conf_1)**2).sum()
+
+
                 ### Ranking loss
-                B_out = out_0.shape[0] ## if temporal_coherence, B_out = B*3
-                probs_0 = F.softmax(out_0, dim=-1)
-                probs_1 = F.softmax(out_1, dim=-1)
-                gt_probs_0 = probs_0[list(range(B_out)), target]
-                gt_probs_1 = probs_1[list(range(B_out)), target]
-                rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
-                rank_loss = rank_loss.sum()
-
-                ### Temporal coherence
-                if self.time_consistency:
-                    temp_loss = 0.0
-                    conf_0 = self.criterion.ComputeEntropyAsWeight(out_0).view(B, 3)
-                    conf_1 = self.criterion.ComputeEntropyAsWeight(out_1).view(B, 3)
-                    ## [0::3] staring from 0, get every another three elements
-                    temp_loss_0 = self.criterion.TemporalConsistencyLoss(out_0[0::3], out_0[1::3], out_0[2::3], reduction='none')
-                    temp_loss_1 = self.criterion.TemporalConsistencyLoss(out_1[0::3], out_1[1::3], out_1[2::3], reduction='none')
-                    # temp_loss += (temp_loss_0*(conf_0**2) + (1-conf_0)**2).sum()
-                    # temp_loss += (temp_loss_1*(conf_1**2) + (1-conf_1)**2).sum()
-                    temp_loss = temp_loss_0.sum() + temp_loss_1.sum()
-
-                # print("gt_probs_0: ", gt_probs_0)
-                # print("gt_probs_1: ", gt_probs_1)
-                # print("rank_loss: ", rank_loss)
-                # print("info_loss: ", info_loss)
-                # print("cls_loss: ", cls_loss)
+                B_out = data.shape[0] ## if temporal_coherence, B_out = B*3
+                rank_loss = 0.0
+                for lvl in range(len(out_list)-1):
+                    probs_0 = F.softmax(out_list[lvl], dim=-1)
+                    probs_1 = F.softmax(out_list[lvl+1], dim=-1)
+                    gt_probs_0 = probs_0[list(range(B_out)), target]
+                    gt_probs_1 = probs_1[list(range(B_out)), target] 
+                    rank_loss += self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin).sum()
 
                 loss = 0.0
                 if loss_config == 0: ##'classification'
@@ -283,10 +272,10 @@ class RACNN_Trainer():
                 # calculate accuracy
                 # print(out_0.shape)
                 # print(target.shape)
-                correct_0 = (torch.max(out_0, dim=1)[1].view(target.size()).data == target.data).sum()
-                train_acc_0 = 100. * correct_0 / B_out
-                correct_1 = (torch.max(out_1, 1)[1].view(target.size()).data == target.data).sum()
-                train_acc_1 = 100. * correct_1 / B_out
+                for lvl in range(len(out_list)):
+                    correct = (torch.max(out_list[lvl], 1)[1].view(target.size()).data == target.data).sum()
+                    train_acc = 100. * correct / B_out
+                    acc_list[lvl].update(train_acc, 1)
                 
                 loss_meter.update(loss, 1)
                 cls_loss_meter.update(cls_loss, 1)
@@ -294,15 +283,16 @@ class RACNN_Trainer():
                 if self.time_consistency:
                     temp_loss_meter.update(temp_loss, 1)
                 # info_loss_meter.update(info_loss, 1)
-                accuracy_0.update(train_acc_0, 1)
-                accuracy_1.update(train_acc_1, 1)
-
+                
 
         return {
-            'cls_loss': cls_loss_meter.avg, 'cls_acc_0': accuracy_0.avg, 'cls_acc_1': accuracy_1.avg, 
+            'cls_loss': cls_loss_meter.avg, 
             'rank_loss': rank_loss_meter.avg, 
             'temp_loss': temp_loss_meter.avg,
             # 'info_loss': info_loss_meter.avg,
+            'cls_acc_0': acc_list[0].avg, 
+            'cls_acc_1': acc_list[1].avg, 
+            'cls_acc_2': acc_list[2].avg, 
             'total_loss': loss_meter.avg
             }
 
@@ -312,30 +302,43 @@ class RACNN_Trainer():
         
         cls_loss_meter = AverageMeter()
         rank_loss_meter = AverageMeter()
-        accuracy_0 = AverageMeter()
-        accuracy_1 = AverageMeter()
+        acc_list = []
+        for lvl in range(self.lvls):
+            acc_list.append(AverageMeter())
 
         with torch.no_grad():
             if self.draw_cams and epoch % self.save_period == 0:
                 ## weight
-                params_classifier_0 = list(self.model.classifier_0.parameters())
-                params_classifier_1 = list(self.model.classifier_1.parameters())
-                ## -2 because we have bias in the classifier
-                weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
-                # weight_softmax_1 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
-                weight_softmax_1 = np.squeeze(params_classifier_1[-2].data.cpu().numpy())
-                
+                weight_softmax_list=[]
+                for lvl in range(self.lvls):
+                    params_classifier = list(self.model.clsfierList[lvl].parameters())
+                    weight_softmax_list.append(np.squeeze(params_classifier[-2].data.cpu().numpy()))
+
                 # hook the feature extractor instantaneously and remove it once data is hooked
-                f_conv_0, f_conv_1 = [], []
+                # f_conv_0, f_conv_1, f_conv_2 = [], [], []
+                f_conv_list = []
                 def hook_feature_conv_scale_0(module, input, output):
-                    f_conv_0.clear()
-                    f_conv_0.append(output.data.cpu().numpy())
+                    # f_conv_0.clear()
+                    # f_conv_0.append(output.data.cpu().numpy())
+                    f_conv_list.clear()
+                    f_conv_list.append(output.data.cpu().numpy())
+
                 def hook_feature_conv_scale_1(module, input, output):
-                    f_conv_1.clear()
-                    f_conv_1.append(output.data.cpu().numpy())
+                    # f_conv_1.clear()
+                    # f_conv_1.append(output.data.cpu().numpy())
+                    assert 1==len(f_conv_list)
+                    f_conv_list.append(output.data.cpu().numpy())
+
+                def hook_feature_conv_scale_2(module, input, output):
+                    # f_conv_2.clear()
+                    # f_conv_2.append(output.data.cpu().numpy())
+                    assert 2==len(f_conv_list)
+                    f_conv_list.append(output.data.cpu().numpy())
+
                 ## place hooker
-                h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
-                h1 = self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
+                h0 = self.model.convList[0][-2].register_forward_hook(hook_feature_conv_scale_0)
+                h1 = self.model.convList[1][-2].register_forward_hook(hook_feature_conv_scale_1)
+                h2 = self.model.convList[2][-2].register_forward_hook(hook_feature_conv_scale_2)
                 print("saving CAMs")
 
             
@@ -354,70 +357,81 @@ class RACNN_Trainer():
                 assert B == 1, "test batch size should be 1"
 
                 # data [B, C, H, W]
-                out_0, out_1, t_01, _ = self.model(data,target=None) ## [B, NumClasses]
-                print(f"{batch_idx}: GT: {target} // theta: {t_01}")
+                out_list, t_list = self.model(data,target=None) ## [B, NumClasses]
+                print(f"{batch_idx}: GT: {target.item()} // theta_01: {t_list[0].data} // theta_12: {t_list[1].data}")
 
                 ### Classification loss
-                cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
-                cls_loss_1, preds_1 = self.criterion.ImgLvlClassLoss(out_1, target, reduction='none')
-                cls_loss = cls_loss_0.sum() + cls_loss_1.sum()
+                cls_loss = 0.0
+                gt_probs_list = []
+                for lvl in range(self.lvls):
+                    cls_loss += self.criterion.ImgLvlClassLoss(out_list[lvl], target, reduction='none')[0].sum()
+                    probs = F.softmax(out_list[lvl], dim=-1)
+                    gt_probs_list.append(probs[list(range(B)), target])
+
 
                 ### Ranking loss
-                probs_0 = F.softmax(out_0, dim=-1)
-                probs_1 = F.softmax(out_1, dim=-1)
-                gt_probs_0 = probs_0[list(range(B)), target]
-                gt_probs_1 = probs_1[list(range(B)), target]
-                rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
-                rank_loss = rank_loss.sum()
+                rank_loss = 0.0
+                for lvl in range(self.lvls-1):
+                    rank_loss += self.criterion.PairwiseRankingLoss(gt_probs_list[lvl], gt_probs_list[lvl+1], margin=self.margin).sum()
 
                 # calculate accuracy
-                correct_0 = (torch.max(out_0, dim=1)[1].view(target.size()).data == target.data).sum()
-                train_acc_0 = 100. * correct_0 / self.testloader.batch_size
-                correct_1 = (torch.max(out_1, 1)[1].view(target.size()).data == target.data).sum()
-                train_acc_1 = 100. * correct_1 / self.testloader.batch_size
+                for lvl in range(self.lvls):
+                    correct = (torch.max(out_list[lvl], dim=1)[1].view(target.size()).data == target.data).sum()
+                    train_acc = 100. * correct / self.testloader.batch_size
+                    acc_list[lvl].update(train_acc, 1)
                 
                 cls_loss_meter.update(cls_loss, 1)
                 rank_loss_meter.update(rank_loss, 1)
-                accuracy_0.update(train_acc_0, 1)
-                accuracy_1.update(train_acc_1, 1)
 
                 if self.draw_cams and epoch % self.save_period == 0:
                     img_path = self.testloader.dataset.get_fname(idx)
-                    # print(img_path)
-                    weight_softmax_0_gt = weight_softmax_0[target, :]
-                    weight_softmax_1_gt = weight_softmax_1[target, :]
-                    self.drawer.draw_cam(
+                    self.drawer.draw_cam_at_different_scales(
                         epoch, target, img_path[0], 
-                        gt_probs_0, weight_softmax_0_gt, f_conv_0[-1], 
-                        sub_folder='scale_0')
-                    self.drawer.draw_cam(
-                        epoch, target, img_path[0], 
-                        gt_probs_1, weight_softmax_1_gt, f_conv_1[-1], 
-                        theta=t_01.cpu(), sub_folder='scale_1')
-                    # input()
+                        gt_probs_list, weight_softmax_list, f_conv_list, ListDatatoCPU(t_list))
+
+                    # # print(img_path)
+                    # lvl = 0
+                    # weight_softmax_gt = weight_softmax_list[lvl][target, :]
+                    # self.drawer.draw_cam(
+                    #     epoch, gt_probs_list[lvl], target, 
+                    #     weight_softmax_gt, f_conv_0[-1], 
+                    #     img_path[0], theta=None, sub_folder=f'scale_{lvl}')
+                
+                    # for lvl in range(1,self.lvls):
+                    #     weight_softmax_gt = weight_softmax_list[lvl][target, :]
+                    #     if lvl == 1: 
+                    #         f_conv = f_conv_1
+                    #     elif lvl == 2:
+                    #         f_conv = f_conv_2
+                    #     else:
+                    #         raise NotImplementedError
+
+                    #     self.drawer.draw_cam(
+                    #         epoch, gt_probs_list[lvl], target, 
+                    #         weight_softmax_gt, f_conv[-1], 
+                    #         img_path[0], lvl=lvl, theta=ListDatatoCPU(t_list), sub_folder=f'scale_{lvl}')
+                    
 
             if self.draw_cams and epoch % self.save_period == 0:
                 timestamp = self.result_folder.split(os.sep)[-2]
 
-                cam_path_scale_0 = os.path.join(self.result_folder, 'scale_0', f"epoch{epoch}")
-                videoname_0 = f'video_epoch{epoch}_{timestamp}_scale0.avi'
-                videoname_0 = os.path.join(self.result_folder, videoname_0)
-                write_video_from_images(cam_path_scale_0, videoname_0)
-                shutil.rmtree(cam_path_scale_0)
-                
-                cam_path_scale_1 = os.path.join(self.result_folder, 'scale_1', f"epoch{epoch}")
-                videoname_1 = f'video_epoch{epoch}_{timestamp}_scale1.avi'
-                videoname_1 = os.path.join(self.result_folder, videoname_1)
-                write_video_from_images(cam_path_scale_1, videoname_1)
-                shutil.rmtree(cam_path_scale_1)
-
+                for lvl in range(self.lvls):
+                    cam_path_scale = os.path.join(self.result_folder, f'scale_{lvl}', f"epoch{epoch}")
+                    videoname = f'video_epoch{epoch}_{timestamp}_scale{lvl}.avi'
+                    videoname = os.path.join(self.result_folder, videoname)
+                    write_video_from_images(cam_path_scale, videoname)
+                    shutil.rmtree(cam_path_scale)
+                    
                 h0.remove()
                 h1.remove()
+                h2.remove()
 
 
         return {
             'cls_loss': cls_loss_meter.avg, 
-            'cls_acc_0': accuracy_0.avg, 'cls_acc_1': accuracy_1.avg, 
+            'cls_acc_0': acc_list[0].avg, 
+            'cls_acc_1': acc_list[1].avg,
+            'cls_acc_2': acc_list[2].avg, 
             'rank_loss': rank_loss_meter.avg,
         }
 

@@ -12,5 +12,6 @@
     "weight_decay": 0.0,
     "temp_consistency_weight": 0.1,
     "pretrained":true,
-    "interleave": 5
+    "interleave": 5,
+    "architecture": "RACNN"
 }

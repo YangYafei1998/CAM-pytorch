@@ -41,71 +41,50 @@ class GridSampler(nn.Module):
 
 
 
-class RACNN(nn.Module):
+class RACNN3Scale(nn.Module):
 
-    def __init__(self, num_classes, device, out_h=224, out_w=224):
-        super(RACNN, self).__init__()
+    def __init__(self, num_classes, lvls, device, out_h=224, out_w=224):
+        super(RACNN3Scale, self).__init__()
         
         self.num_classes = num_classes
-        basemodel = models.resnet50(pretrained=True)
-        # basemodel = models.resnet18(pretrained=True)
         
-        ## shared feature extractor
-        self.base = nn.Sequential(
-            basemodel.conv1,
-            basemodel.bn1,
-            basemodel.relu,
-            basemodel.maxpool,
-            basemodel.layer1,
-            basemodel.layer2,
-            basemodel.layer3
-        )
-
-        ## shared feature extractor
-        self.base1 = nn.Sequential(
-            basemodel.conv1,
-            basemodel.bn1,
-            basemodel.relu,
-            basemodel.maxpool,
-            basemodel.layer1,
-            basemodel.layer2,
-            basemodel.layer3
-        )
-
         ## global average pooling
         self.gap = nn.AdaptiveAvgPool2d(1)
         ## dropout
         self.drop = nn.Dropout2d(0.5)
         ## sampler
         self.grid_sampler = GridSampler(device, out_h, out_w)
-
-        ## classification head for scale 0
-        self.conv_scale_0 = nn.Sequential(
-            nn.Conv2d(1024, 512, kernel_size=1, bias=False), ## resnet50
-            # nn.Conv2d(256, 512, kernel_size=1, bias=False), ## resnet18
-            nn.Conv2d(512, 512, kernel_size=3, padding=1, bias=False),
-            nn.ReLU(inplace=True)
+        
+        basemodel = models.resnet50(pretrained=True)
+        # basemodel = models.resnet18(pretrained=True)
+        self.lvls = lvls
+        self.baseList = nn.ModuleList()
+        self.convList=nn.ModuleList()
+        self.clsfierList=nn.ModuleList()
+        for _ in range(self.lvls):
+            ## list of backbones
+            self.baseList.append(
+                nn.Sequential(
+                    basemodel.conv1,
+                    basemodel.bn1,
+                    basemodel.relu,
+                    basemodel.maxpool,
+                    basemodel.layer1,
+                    basemodel.layer2,
+                    basemodel.layer3
+                )
             )
-        self.classifier_0 = nn.Linear(512, num_classes)
-
-        ## classification head for scale 1
-        self.conv_scale_1 = nn.Sequential(
-            nn.Conv2d(1024, 512, kernel_size=1, bias=False), ## resnet50
-            # nn.Conv2d(256, 512, kernel_size=1, bias=False), ## resnet18
-            nn.Conv2d(512, 512, kernel_size=3, padding=1, bias=False),
-            nn.ReLU(inplace=True)
+            ## list of classification heads
+            self.convList.append(
+                nn.Sequential(
+                    nn.Conv2d(1024, 512, kernel_size=1, bias=False), ## resnet50
+                    # nn.Conv2d(256, 512, kernel_size=1, bias=False), ## resnet18
+                    nn.Conv2d(512, 512, kernel_size=3, padding=1, bias=False),
+                    nn.ReLU(inplace=True)
+                )
             )
-        self.classifier_1 = nn.Linear(512, num_classes)
-
-        # ## final conv for scale 2
-        # self.conv_scale_2 = nn.Sequential(
-        #     nn.Conv2d(1024, 512, kernel_size=1, bias=False),
-        #     nn.BatchNorm2d(512),
-        #     nn.Conv2d(512, 512, kernel_size=3, padding=1, bias=False)
-        #     nn.BatchNorm2d(512),
-        #     nn.ReLU(inplace=True),
-        #     )
-
+            self.clsfierList.append(nn.Linear(512, num_classes))
+            
         ## attention proposal head between scales 0 and 1
         self.apn_scale_01 = nn.Sequential(
             nn.Linear(512, 256, bias=True),
@@ -115,7 +94,6 @@ class RACNN(nn.Module):
             nn.Linear(128, 3, bias=True),
             nn.Sigmoid()
             )
-
         ## attention proposal head between scales 0 and 1
         self.apn_map_scale_01 = nn.Sequential(
             nn.Conv2d(512, 128, kernel_size=1, bias=False),
@@ -136,20 +114,11 @@ class RACNN(nn.Module):
         print(self)
     
     def classification(self, x, lvl):
-        # x = self.base(x)
-        if lvl == 0:
-            x = self.base(x)
-            f_conv = self.conv_scale_0(x)
-            f_gap = self.gap(f_conv)
-            return self.classifier_0(self.drop(f_gap).squeeze(2).squeeze(2)), f_gap, f_conv
-        elif lvl == 1:
-            x = self.base1(x)
-            f_conv = self.conv_scale_1(x)
-            f_gap = self.gap(f_conv)
-            return self.classifier_1(self.drop(f_gap).squeeze(2).squeeze(2)), f_gap, f_conv
-        else:
-            raise NotImplementedError
-        
+        x = self.baseList[lvl](x)
+        f_conv = self.convList[lvl](x)
+        f_gap = self.gap(f_conv)
+        return self.clsfierList[lvl](self.drop(f_gap).squeeze(2).squeeze(2)), f_gap, f_conv
+    
     def apn(self, xgap, lvl):
         # x = self.drop(x)
         # print(x.shape)
@@ -165,10 +134,6 @@ class RACNN(nn.Module):
             raise NotImplementedError
             
     def apn_map(self, xconv, target, lvl):
-        # x = self.drop(x)
-        # print(x.shape)
-        # shift = torch.tensor([[0.0, 0.0, 1.0]]).to(xconv.device)
-        # scale = torch.tensor([[0.5, 0.5, 0.4]]).to(xconv.device)
         shift = torch.tensor([[0.5, 0.5, -1.0]]).to(xconv.device)
         scale = torch.tensor([[1.0, 1.0, 0.4]]).to(xconv.device)
         if lvl == 0:
@@ -200,35 +165,34 @@ class RACNN(nn.Module):
         
         # alternating between two modes
         if train_config == 1:
-            self.freeze_network(self.base)
-            self.freeze_network(self.base1)
-            self.freeze_network(self.conv_scale_0)
-            self.freeze_network(self.conv_scale_1)
-            self.freeze_network(self.classifier_0)
-            self.freeze_network(self.classifier_1)
+            self.freeze_network(self.baseList)
+            self.freeze_network(self.convList)
+            self.freeze_network(self.clsfierList)
         else:
-            self.unfreeze_network(self.base)
-            self.unfreeze_network(self.base1)
-            self.unfreeze_network(self.conv_scale_0)
-            self.unfreeze_network(self.conv_scale_1)
-            self.unfreeze_network(self.classifier_0)
-            self.unfreeze_network(self.classifier_1)
+            self.unfreeze_network(self.baseList)
+            self.unfreeze_network(self.convList)
+            self.unfreeze_network(self.clsfierList)
             self.unfreeze_network(self.apn_scale_01)
 
-        ## classification scale 1
-        out_0, f_gap_0, f_conv0 = self.classification(x, lvl=0)
-        
-        # ## zoom in
-        # # t0 = self.apn(f_gap_0, lvl=0) ## [B, 3]
-        if target is None:
-            target = torch.argmax(out_0, dim=-1).unsqueeze(1) ## [B, 1]
-        t0 = self.apn_map(f_conv0, target, lvl=0) ## [B, 3]
-        grid = self.grid_sampler(t0) ## [B, H, W, 2]
-        x1 = F.grid_sample(x, grid, align_corners=False, padding_mode='reflection') ## [B, 3, H, W] sampled using grid parameters
-        ## classification scale 2
-        out_1, f_gap_1, f_conv1 = self.classification(x1, lvl=1)
+        ## 
+        out_list = []
+        t_list = []
 
-        return out_0, out_1, t0, f_gap_1
+        ## classification
+        out, _, f_conv = self.classification(x, 0)
+        out_list.append(out)
+        xz = x.clone()
+        for lvl in range(1,self.lvls):
+            if target is None:
+                target = torch.argmax(out, dim=-1).unsqueeze(1) ## [B, 1]
+            t = self.apn_map(f_conv, target, lvl=0) ## [B, 3]
+            t_list.append(t)
+            grid = self.grid_sampler(t) ## [B, H, W, 2]
+            xz = F.grid_sample(xz, grid, align_corners=False, padding_mode='reflection') ## [B, 3, H, W] sampled using grid parameters
+            out, _, f_conv = self.classification(xz, lvl)
+            out_list.append(out)
+
+        return out_list, t_list
 
     def freeze_network(self, module):
         for p in module.parameters():
