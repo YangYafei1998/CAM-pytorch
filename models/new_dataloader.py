@@ -25,7 +25,7 @@ from albumentations import GaussNoise, MotionBlur, MedianBlur, OneOf, Compose
 
 ## Load images concated by flow and rgb images
 class ImageDataset():
-    def __init__(self, image_path_file, image_label_file, image_localization_file=None, is_training=True, temporal_coherence=False):
+    def __init__(self, image_path_file, image_label_file, image_localization_file=None, is_training=True, augmentation=False, temporal_coherence=False):
         
         self.is_training = is_training
         self.temporal_coherence = temporal_coherence

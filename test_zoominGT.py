@@ -22,7 +22,7 @@ def image_sampler(image, theta, out_w=256, out_h=256):
     X = (X + trans_x)*uni_scale
     Y = (Y + trans_y)*uni_scale
     grid = torch.cat((X, Y), dim=-1)
-    return F.grid_sample(image, grid)
+    return F.grid_sample(image, grid, align_corners=True, padding_mode='zeros')
     
 
 class GridSampler(nn.Module):
@@ -64,13 +64,39 @@ y_len = 117
 cv2.rectangle(img,(x,y),(x+x_len,y+y_len),(0,255,0),2)
 cv2.imwrite('original.png', img)
 
-theta =torch.FloatTensor([[-0.3, -0.3, 0.65]])
+theta =torch.FloatTensor([[-0.465, -0.4303, 0.7991]])
 
 new_center_x = (1 + theta[0][0] * theta[0][2]) * 128 
 new_center_y = (1 + theta[0][1] * theta[0][2]) * 128
 new_len = 256 * theta[0][2]
-new_upper_left_x = max((new_center_x - new_len/2).item(), 0)
-new_upper_left_y = max((new_center_y - new_len/2).item(), 0)
+if (new_center_x - new_len/2).item() < 0:
+    new_upper_left_x = 0
+    border_x = (new_center_x - new_len/2).item()
+    x = x - border_x
+else:
+    new_upper_left_x = (new_center_x - new_len/2).item()
+
+if (new_center_y - new_len/2).item() < 0:
+    new_upper_left_y = 0
+    border_y = (new_center_y - new_len/2).item()
+    y = y - border_y
+else:
+    new_upper_left_y = (new_center_y - new_len/2).item()
+
+if x - new_upper_left_x < 0:
+    x_len = int((x_len + (x - new_upper_left_x))/theta[0][2])
+    x = 0
+else:
+    x = int((x - new_upper_left_x)/theta[0][2])
+    x_len = int(x_len/theta[0][2])
+
+if y - new_upper_left_y < 0:
+    y_len = int((y_len + (y - new_upper_left_y))/theta[0][2])
+    y = 0
+else:
+    y = int((y - new_upper_left_y)/theta[0][2])
+    y_len = int(y_len/theta[0][2])
+
 print(new_upper_left_x)
 print(new_upper_left_y)
 # cv2.rectangle(img,(int(new_upper_left_x),int(new_upper_left_y)),(int(new_upper_left_x+new_len),int(new_upper_left_y+new_len)),(0,255,0),2)
@@ -78,21 +104,8 @@ print(new_upper_left_y)
 # cv2.circle(img, (128,128), 2, (0,0,255),2)
 # cv2.circle(img, (128,192), 2, (0,0,255),2)
 
-cv2.imwrite('origin.png', img)
-
-if x - new_upper_left_x < 0:
-    x = 0
-    x_len = int((x_len + (x - new_upper_left_x))/theta[0][2])
-else:
-    x = int((x - new_upper_left_x)/theta[0][2])
-    x_len = int(x_len/theta[0][2])
-
-if y - new_upper_left_y < 0:
-    y = 0
-    y_len = int((y_len + (y - new_upper_left_y))/theta[0][2])
-else:
-    y = int((y - new_upper_left_y)/theta[0][2])
-    y_len = int(y_len/theta[0][2])
+print(x)
+print(y)
 print(x_len)
 print(y_len)
 

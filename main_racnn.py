@@ -44,7 +44,8 @@ def main(config):
     train_dataset = ImageDataset(
         'image_path_folder/train_image_list_sorted_6.txt', 
         'image_path_folder/train_image_label_sorted_6.txt', 
-        is_training=True, temporal_coherence=False)
+        is_training=True, temporal_coherence=temporal_coherence)
+    config['temporal'] = temporal_coherence
 
     test_dataset = ImageDataset(
         'image_path_folder/test_image_list_sorted.txt', 

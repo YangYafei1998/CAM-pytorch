@@ -4,7 +4,7 @@ import os
 import tqdm
 from datetime import datetime
 import collections
-from utils.cam_drawer import CAMDrawer
+from utils.cam_drawer import CAMDrawer, largest_component, generate_bbox, returnCAM, write_text_to_img
 
 import torch
 import torch.nn.functional as F
@@ -15,8 +15,39 @@ from make_video import *
 
 import shutil
 
-# from trainer import Trainer
+def theta2coordinate(theta, x, y, x_len, y_len):
+    new_center_x = (1 + theta[0][0] * theta[0][2]) * 128 
+    new_center_y = (1 + theta[0][1] * theta[0][2]) * 128
+    new_len = 256 * theta[0][2]
+    if (new_center_x - new_len/2).item() < 0:
+        new_upper_left_x = 0
+        border_x = (new_center_x - new_len/2).item()
+        x = x - border_x
+    else:
+        new_upper_left_x = (new_center_x - new_len/2).item()
 
+    if (new_center_y - new_len/2).item() < 0:
+        new_upper_left_y = 0
+        border_y = (new_center_y - new_len/2).item()
+        y = y - border_y
+    else:
+        new_upper_left_y = (new_center_y - new_len/2).item()
+    
+    if x - new_upper_left_x < 0:
+        x_len = int((x_len + (x - new_upper_left_x))/theta[0][2])
+        x = 0
+    else:
+        x = int((x - new_upper_left_x)/theta[0][2])
+        x_len = int(x_len/theta[0][2])
+
+    if y - new_upper_left_y < 0:
+        y_len = int((y_len + (y - new_upper_left_y))/theta[0][2])
+        y = 0
+    else:
+        y = int((y - new_upper_left_y)/theta[0][2])
+        y_len = int(y_len/theta[0][2])
+
+    return x, y, x_len, y_len
 
 class RACNN_Trainer():
 
@@ -70,9 +101,11 @@ class RACNN_Trainer():
         
         if config['disable_workers']:
             self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0) 
+            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
             self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
         else:
             self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4) 
+            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4) 
             self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4) 
 
 
@@ -137,8 +170,10 @@ class RACNN_Trainer():
 
     ## pre-train session
     def pretrain(self):
-        # self.pretrain_classification()
-        self.pretrain_apn()
+        # for _ in range(0, 5):
+            # self.pretrain_classification()
+        for _ in range(2):
+            self.pretrain_apn()
         print("Pre-train Finished")
 
 
@@ -146,6 +181,8 @@ class RACNN_Trainer():
     def train(self, max_epoch, do_validation=True):
         if max_epoch is not None:
             self.max_epoch = max_epoch
+        
+        self.pretrain()
 
         for epoch in range(max_epoch):
             ## training
@@ -155,6 +192,8 @@ class RACNN_Trainer():
             self.logger.info(f"Classification\n")
             log = self.train_one_epoch(epoch, 0)
             self.logger.info(log)
+            # self.pretrain()
+
 
             if epoch % self.interleaving_step == 0:
                 self.logger.info(f"APN\n")
@@ -339,9 +378,8 @@ class RACNN_Trainer():
 
 
                 # data [B, C, H, W]
-                out_0, out_1, t_01 = self.model(data) ## [B, NumClasses]
-                # print(f"{batch_idx}: GT: {target} location: {locationGT} // theta: {t_01}")
-
+                out_0, out_1, t_01, _ = self.model(data,target=None) ## [B, NumClasses]
+                print(f"{batch_idx}: GT: {target} // theta: {t_01}")
                 ### Classification loss
                 cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
                 cls_loss_1, preds_1 = self.criterion.ImgLvlClassLoss(out_1, target, reduction='none')
@@ -407,7 +445,7 @@ class RACNN_Trainer():
         }
 
     ##
-    def pretrain_classification(self, max_epoch=1):
+    def pretrain_classification(self, max_epoch=5):
 
         print("pretran Classification")
 
@@ -442,49 +480,73 @@ class RACNN_Trainer():
 
 
     ##
-    def pretrain_apn(self, max_epoch=1):
+    def pretrain_apn(self, max_epoch=3):
         
         print("pretran APN")
 
         self.model.train()
         self.optimizer.zero_grad()
+        # with torch.no_grad():
         with torch.set_grad_enabled(True):
             ## weight
             params_classifier_0 = list(self.model.classifier_0.parameters())
             ## -2 because we have bias in the classifier
-            weight_softmax_0 = params_classifier_0[-2].data
+            # weight_softmax_0 = params_classifier_0[-2].data.cpu().numpy() 
+            weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
+
             # hook the feature extractor instantaneously and remove it once data is hooked
             f_conv_0 = []
             def hook_feature_conv_scale_0(module, input, output):
                 f_conv_0.clear()
-                f_conv_0.append(output.data)
+                f_conv_0.append(output.data.data.cpu().numpy())
             ## place hooker
             h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
 
             for batch_idx, batch in tqdm.tqdm(
-                enumerate(self.trainloader), 
-                total=len(self.trainloader),
+                enumerate(self.pretrainloader), 
+                total=len(self.pretrainloader),
                 desc='pretrain_apn'+': ', 
                 ncols=80, 
                 leave=False):
             # for batch_idx, batch in enumerate(self.trainloader):
-                data, target, idx = batch
+                data, target, idx, _ = batch
+                img_path = self.testloader.dataset.get_fname(idx)
+                img = cv2.imread(img_path[0], -1) ## [H, W, C]
                 target = self.generate_confusion_target(target)
 
                 data, target = data.to(self.device), target.to(self.device)
                 B = data.shape[0]
 
                 # data [B, C, H, W]
-                out_0, out_1, t_01, _ = self.model(data, target=target.unsqueeze(1)) ## [B, NumClasses]
-
-                ### Classification loss
-                cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
-                cls_loss = cls_loss_0.sum()
+                out_0, out_1, t_01, _ = self.model(data, target=target.unsqueeze(1), train_config=1) ## [B, NumClasses]
 
                 ### get CAM peak
-                theta = self.get_cam_peak(f_conv_0[-1], weight_softmax_0[target,:])
+                coordinate, heatmap = self.get_cam_peak(f_conv_0[-1], weight_softmax_0[target,:])
+                cam = heatmap * 0.3 + img * 0.5
+                cv2.rectangle(cam, (coordinate[1], coordinate[0]), (coordinate[3], coordinate[2]), (0, 0, 255), 2)
+                # print('coordinate')
+                # print(coordinate)
+                center_x = (coordinate[1]+coordinate[3])/2
+                cam_x = (center_x - 128)/128
+                center_y = (coordinate[0]+coordinate[2])/2
+                cam_y = (center_y - 128)/128
+                cam_l = (coordinate[3]-coordinate[1]+coordinate[2]-coordinate[0])/(2*256)
+                # print(cam_x)
+                # print(cam_y)
+                # print(cam_l)
+                # print('t_01')
+                # print(t_01)
 
-                loss = F.mse_loss(t_01, theta)
+                target_pos = torch.FloatTensor(np.array([cam_x, cam_y, cam_l]))
+                # print('target_pos')
+                # print(target_pos)
+                write_text_to_img(cam, f"target: {target}", org=(20,50), fontScale = 0.3)
+                write_text_to_img(cam, f"t_01: {t_01}", org=(20,65), fontScale = 0.3)
+                write_text_to_img(cam, f"target: {target_pos}", org=(20,80), fontScale = 0.3)
+                cv2.imwrite('/userhome/30/yfyang/CAM-pytorch/saved/debug/'+f'{int(time.time())}.jpg', cam)
+                
+                loss = F.smooth_l1_loss(t_01, target_pos.cuda())
+                print(loss)
                 loss.backward()
                 self.optimizer.step()
 
@@ -502,19 +564,14 @@ class RACNN_Trainer():
     #     cam_img = cam / np.max(cam)
     #     cam_img = np.uint8(255 * cam_img)
     #     return cam_img
+    
     def get_cam_peak(self, feature, weight_softmax):
-        B, C = weight_softmax.shape
-        weight_softmax = weight_softmax.reshape(B, 1, C)
-        _, nc, h, w = feature.shape
-        cam = weight_softmax.bmm(feature.flatten(start_dim=2))
-        cam = cam.reshape(B, -1)
-        print('cam.shape: ', cam.shape)
-        max_loc = torch.argmax(cam, dim=-1)
-        # print('max_loc.shape: ', max_loc.shape)
-        # print('max_loc: ', max_loc)
-        # input()
-        return
-
+        # cam = returnCAM(feature.detach().cpu().numpy(), weight_softmax.detach().cpu().numpy())
+        cam = returnCAM(feature, weight_softmax)
+        image = cv2.resize(cam, (256, 256))
+        prop = generate_bbox(image, 0.8)
+        heatmap = cv2.applyColorMap(image, cv2.COLORMAP_JET)
+        return prop.bbox, heatmap
     def generate_confusion_target(self, target):
         for confusion_idx in range(3, 6):
             target_cofusion = target==confusion_idx
