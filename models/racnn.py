@@ -93,15 +93,6 @@ class RACNN(nn.Module):
             )
         self.classifier_1 = nn.Linear(512, num_classes)
 
-        # ## final conv for scale 2
-        # self.conv_scale_2 = nn.Sequential(
-        #     nn.Conv2d(1024, 512, kernel_size=1, bias=False),
-        #     nn.BatchNorm2d(512),
-        #     nn.Conv2d(512, 512, kernel_size=3, padding=1, bias=False)
-        #     nn.BatchNorm2d(512),
-        #     nn.ReLU(inplace=True),
-        #     )
-
         ## attention proposal head between scales 0 and 1
         self.apn_scale_01 = nn.Sequential(
             nn.Linear(512, 256, bias=True),
@@ -178,6 +169,8 @@ class RACNN(nn.Module):
             xconv = F.adaptive_avg_pool1d(xconv, 1).squeeze(2)
             # print(xconv.shape)
             # input()
+
+            #target concate with hw*1*1
             if target is not None:
                 target_ = torch.FloatTensor(target.shape[0], self.num_classes).to(xconv.device)
                 target_.zero_()

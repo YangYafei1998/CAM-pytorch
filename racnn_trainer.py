@@ -232,6 +232,8 @@ class RACNN_Trainer():
             
             B = data.shape[0]
             H, W = data.shape[-2:] # [-2:]==[-2,-1]; [-2:-1] == [-2]
+            
+            print("H and W are ,", H, W)
 
             self.optimizer.zero_grad()
             with torch.set_grad_enabled(True):
@@ -262,8 +264,11 @@ class RACNN_Trainer():
                 # rank_loss = rank_loss.sum()
                 
 ##################################################################################################################################                
-
-
+                # for i in range(0,data.shape[0]):
+                #     curTarget=target[i]
+                #     B=1
+                #     data=data[i]
+                #     cur
                 print("target is", target)
                 weight_softmax_0_gt = weight_softmax_0[target.cpu(), :]
                 weight_softmax_1_gt = weight_softmax_1[target.cpu(), :]                 
@@ -277,8 +282,10 @@ class RACNN_Trainer():
                 # print("self.model.conv_scale_0[-2] ", self.model.conv_scale_0[-2])
                 print("f_conv_0, ",f_conv_0)
                 print("img_path[0]",img_path[0] )
-                count0 = camforCount(weight_softmax=weight_softmax_0_gt, feature=f_conv_0[-1], theta=t_01,img_path=img_path[0])
-                count1 = camforCount(weight_softmax=weight_softmax_1_gt, feature=f_conv_1[-1], theta=t_01,img_path=img_path[0])
+                print("img_path",img_path )
+                print("theta is", t_01)
+                count0 = camforCount(weight_softmax=weight_softmax_0_gt, feature=f_conv_0[-1],img_path=img_path)
+                count1 = camforCount(weight_softmax=weight_softmax_1_gt, feature=f_conv_1[-1], theta=t_01.cpu(),img_path=img_path)
                 rank_loss = self.criterion.RankingLossDivideByCount(gt_probs_0, count0, gt_probs_1, count1, margin=self.margin)
                 # rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
                 rank_loss = rank_loss.sum()

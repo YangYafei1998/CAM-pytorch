@@ -85,12 +85,6 @@ def image_sampler(image, theta, out_w=256, out_h=256):
     X = grid_X.repeat_interleave(B, dim=0)
     Y = grid_Y.repeat_interleave(B, dim=0)
 
-    print("is X cuda ? ", X.is_cuda)
-    print("is Y cuda ? ", Y.is_cuda)
-    print("is uniscale cuda ? ", uni_scale.is_cuda)
-    
-    print("is uniscale cuda ? ", (uni_scale.cpu()).is_cuda)
-
     X = (X + trans_x)*(uni_scale.cpu())
     Y = (Y + trans_y)*(uni_scale.cpu())
     grid = torch.cat((X, Y), dim=-1)
@@ -98,13 +92,12 @@ def image_sampler(image, theta, out_w=256, out_h=256):
     
 def camforCount(weight_softmax, feature, img_path, theta=None):
     # render the CAM and output
-    img = cv2.imread(img_path, -1) ## [H, W, C]
+    img = cv2.imread(img_path[0], -1) ## [H, W, C]
+    print("feature.shape ,", feature.shape)
+    print("weight_softmax.shape ,", weight_softmax.shape)
+    # for batch_inner_id,  target in enumerate()
     if theta is not None:
         img_tensor = torch.from_numpy(img).type(torch.FloatTensor).unsqueeze(0)
-        print("img_tensor ", img_tensor)
-        print("img_tensor size ", img_tensor.size())
-        print("img_tensor is cuda? ", img_tensor.is_cuda)
-        print("theta is cuda? ", theta.is_cuda)
         img_tensor = img_tensor.permute(0,3,1,2) ## [B, H, W, C] --> [B, C, H, W]
         img_tensor = image_sampler(img_tensor, theta)
         img = np.asarray(img_tensor.permute(0,2,3,1).squeeze(0)) ## [B, H, W, C] --> [H, W, C]
@@ -121,6 +114,8 @@ def returnCAM(feature_conv, weight_softmax):
     # generate the class activation maps upsample to 256x256
     size_upsample = (256, 256)
     bz, nc, h, w = feature_conv.shape
+    # nc, h, w = feature_conv.shape
+
     # print(weight_softmax.shape)
     cam = weight_softmax.dot(feature_conv.reshape((nc, h*w)))
     cam = cam.reshape(h, w)
