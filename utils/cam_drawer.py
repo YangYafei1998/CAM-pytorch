@@ -131,7 +131,8 @@ class CAMDrawer():
         for lvl in range(lvls):
             self.draw_cam(
                 epoch, gt_lbl, img_path, 
-                prob_list[lvl], weight_softmax_list[lvl][gt_lbl,:], feature_list[lvl], theta_list, sub_folder = f"scale_{lvl}")
+                prob_list[lvl], weight_softmax_list[lvl][gt_lbl,:], feature_list[lvl], 
+                lvl=lvl, theta=theta_list, sub_folder = f"scale_{lvl}")
 
     def draw_cam(self, epoch, gt_lbl, img_path, prob, weight_softmax, feature, lvl=0, theta=None, sub_folder=None, GT=None, logit=None):
         ## compute softmax probablity
