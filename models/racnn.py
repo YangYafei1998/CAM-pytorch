@@ -213,7 +213,7 @@ class RACNN(nn.Module):
             self.unfreeze_network(self.classifier_2)
             # self.unfreeze_network(self.apn_conv_01)
             # self.unfreeze_network(self.apn_regress_01)
-            self.unfreeze_network(self.apn_map_chlwise)
+            self.unfreeze_network(self.apn_map_flatten_01)
 
 
         ### Scale 0

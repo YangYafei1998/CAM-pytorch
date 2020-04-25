@@ -51,6 +51,12 @@ def theta2coordinate(theta, x, y, x_len, y_len):
 
     return x, y, x_len, y_len
 
+def ListDatatoCPU(list_data):
+    assert isinstance(list_data, list)
+    cpu_list_data = []
+    for d in list_data:
+        cpu_list_data.append(d.cpu())
+    return cpu_list_data
 
 def compute_acc(out, target, batch_size):
     correct = (torch.max(out, dim=1)[1].view(target.size()).data == target.data).sum()
@@ -213,8 +219,6 @@ class RACNN_Trainer():
             self.logger.info(f"Classification\n")
             log = self.train_one_epoch(epoch, 0)
             self.logger.info(log)
-            # self.pretrain()
-
 
             if epoch != 0 and epoch % self.interleaving_step == 0:
                 self.logger.info(f"APN\n")
@@ -287,8 +291,8 @@ class RACNN_Trainer():
                     target = target.view(B*3)
 
                 out_list, t_list = self.model(data, target.unsqueeze(1), loss_config) ## [B, NumClasses]
-                out_0, out_1, out_2 = *out_list
-                t_01, t_12 = *t_list
+                out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
+                t_01, t_12 = t_list[0], t_list[1]
 
 
                 ### Classification loss
@@ -366,6 +370,8 @@ class RACNN_Trainer():
         rank_loss_meter = AverageMeter()
         accuracy_0 = AverageMeter()
         accuracy_1 = AverageMeter()
+        accuracy_2 = AverageMeter()
+
 
         with torch.no_grad():
             # if self.draw_cams:
@@ -408,12 +414,13 @@ class RACNN_Trainer():
                 data, target, idx = batch
                 data, target = data.to(self.device), target.to(self.device)
                 B = data.shape[0]
+                H, W = data.shape[-2:]
                 assert B == 1, "test batch size should be 1"
 
                 # data [B, C, H, W]
                 out_list, t_list = self.model(data,target=None) ## [B, NumClasses]
-                out_0, out_1, out_2 = *out_list
-                t_01, t_12 = *t_list
+                out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
+                t_01, t_12 = t_list[0], t_list[1]
 
                 print(f"{batch_idx}: GT: {target.item()} // theta: {t_01} // theta: {t_12}")
                 ### Classification loss
@@ -447,19 +454,22 @@ class RACNN_Trainer():
                     # print(img_path)
                     weight_softmax_0_gt = weight_softmax_0[target, :]
                     weight_softmax_1_gt = weight_softmax_1[target, :]
+                    weight_softmax_2_gt = weight_softmax_2[target, :]
+
                     self.drawer.draw_single_cam(
                         epoch, target, img_path[0], 
                         gt_probs_0, weight_softmax_0_gt, f_conv_0[-1], 
-                        sub_folder='scale_0')
+                        theta=None, sub_folder='scale_0')
+
                     self.drawer.draw_single_cam(
                         epoch, target, img_path[0], 
                         gt_probs_1, weight_softmax_1_gt, f_conv_1[-1], 
-                        theta=t_01.cpu(), sub_folder='scale_1')
+                        lvl = 1, theta=ListDatatoCPU(t_list[0:1]), sub_folder='scale_1')
+                    
                     self.drawer.draw_single_cam(
                         epoch, target, img_path[0], 
-                        gt_probs_1, weight_softmax_1_gt, f_conv_1[-1], 
-                        lvl = 2,
-                        theta=[t_01, t_12], sub_folder='scale_1')
+                        gt_probs_2, weight_softmax_2_gt, f_conv_2[-1], 
+                        lvl = 2, theta=ListDatatoCPU(t_list[0:2]), sub_folder='scale_2')
 
                     # input()
             # if self.draw_cams:
@@ -479,7 +489,7 @@ class RACNN_Trainer():
                 shutil.rmtree(cam_path_scale_1)
 
                 cam_path_scale_2 = os.path.join(self.result_folder, 'scale_2', f"epoch{epoch}")
-                videoname_2 = f'video_epoch{epoch}_{timestamp}_scale1.avi'
+                videoname_2 = f'video_epoch{epoch}_{timestamp}_scale2.avi'
                 videoname_2 = os.path.join(self.result_folder, videoname_2)
                 write_video_from_images(cam_path_scale_2, videoname_2)
                 shutil.rmtree(cam_path_scale_2)
@@ -491,7 +501,9 @@ class RACNN_Trainer():
 
         return {
             'cls_loss': cls_loss_meter.avg, 
-            'cls_acc_0': accuracy_0.avg, 'cls_acc_1': accuracy_1.avg, 
+            'cls_acc_0': accuracy_0.avg, 
+            'cls_acc_1': accuracy_1.avg, 
+            'cls_acc_2': accuracy_2.avg, 
             'rank_loss': rank_loss_meter.avg,
         }
 
@@ -514,13 +526,21 @@ class RACNN_Trainer():
             target = self.generate_confusion_target(target)
             data, target = data.to(self.device), target.to(self.device)
             B = data.shape[0]
+            H, W = data.shape[-2:]
             # if batch_idx == 5: break
 
             self.optimizer.zero_grad()
             with torch.set_grad_enabled(True):
                 # data [B, C, H, W]
-                out_0, out_1, t_01, _ = self.model(data, target=target.unsqueeze(1)) ## [B, NumClasses]
+                if self.time_consistency:
+                    
+                    data = data.view(B*3, 3, H, W)
+                    target = target.view(B*3)
 
+                out_list, t_list = self.model(data, target=target.unsqueeze(1)) ## [B, NumClasses]
+                out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
+                t_01, t_12 = t_list[0], t_list[1]
+                
                 ### Classification loss
                 cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
                 cls_loss = cls_loss_0.sum()
@@ -583,13 +603,20 @@ class RACNN_Trainer():
             target = self.generate_confusion_target(target)
             data, target = data.to(self.device), target.to(self.device)
             B = data.shape[0]
+            H, W = data.shape[-2:]
 
             self.optimizer.zero_grad()
             with torch.set_grad_enabled(True):
                 # data [B, C, H, W]
+                
+                if self.time_consistency:
+                    data = data.view(B*3, 3, H, W)
+                    target = target.view(B*3)
+                
                 out_0, out_1, t_01, _ = self.model(data, target.unsqueeze(1), 1) ## [B, NumClasses]
-                # print(t_01)
-                # t_01.register_hook(hook)
+                out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
+                t_01, t_12 = t_list[0], t_list[1]
+
 
                 ### ---- original implementation for batchsize 1
                 ### get cropped region calculated by the APN
@@ -635,33 +662,33 @@ class RACNN_Trainer():
                 self.optimizer.step()
                 loss_meter.update(loss.item())
 
-                # ## draw images
-                # img_path = self.trainloader.dataset.get_fname(idx)
-                # for i in range(B):
-                #     img = cv2.imread(img_path[i], -1) ## [H, W, C]
-                #     cam = heatmaps[i,:] * 0.3 + img * 0.5
-                #     coordinate = coordinates[i,:]
-                #     cv2.rectangle(
-                #         cam, 
-                #         (coordinate[1], coordinate[0]), 
-                #         (coordinate[3], coordinate[2]), 
-                #         (0, 255, 0), 2)#peak activation region
-                #     cv2.rectangle(
-                #         cam, 
-                #         (out_center_x[i] - out_len[i]/2, out_center_y[i] - out_len[i]/2), 
-                #         (out_center_x[i] + out_len[i]/2, out_center_y[i] + out_len[i]/2), 
-                #         (0, 0, 255), 2) # cropped region by APN
+                ## draw images
+                img_path = self.trainloader.dataset.get_fname(idx[0])
+                for i in range(B):
+                    img = cv2.imread(img_path[i], -1) ## [H, W, C]
+                    cam = heatmaps[i,:] * 0.3 + img * 0.5
+                    coordinate = coordinates[i,:]
+                    cv2.rectangle(
+                        cam, 
+                        (coordinate[1], coordinate[0]), 
+                        (coordinate[3], coordinate[2]), 
+                        (0, 255, 0), 2)#peak activation region
+                    cv2.rectangle(
+                        cam, 
+                        (out_center_x[i] - out_len[i]/2, out_center_y[i] - out_len[i]/2), 
+                        (out_center_x[i] + out_len[i]/2, out_center_y[i] + out_len[i]/2), 
+                        (0, 0, 255), 2) # cropped region by APN
 
-                #     write_text_to_img(cam, f"gt_lbl: {target[i]}", org=(20,50), fontScale = 0.3)
-                #     write_text_to_img(cam, f"t_01: {t_01[i,:]}", org=(20,65), fontScale = 0.3)
-                #     write_text_to_img(cam, f"target: {target_pos[i,:]}", org=(20,80), fontScale = 0.3)
+                    write_text_to_img(cam, f"gt_lbl: {target[i]}", org=(20,50), fontScale = 0.3)
+                    write_text_to_img(cam, f"t_01: {t_01[i,:]}", org=(20,65), fontScale = 0.3)
+                    write_text_to_img(cam, f"target: {target_pos[i,:]}", org=(20,80), fontScale = 0.3)
 
-                #     path = os.path.join(self.result_folder, 'debug')
-                #     if not os.path.exists(path):
-                #         print("makepath: ", path)
-                #         os.mkdir(path)
-                #     fname = os.path.join(path, f'{int(time.time())}.jpg')
-                #     cv2.imwrite(fname, cam)
+                    path = os.path.join(self.result_folder, 'debug')
+                    if not os.path.exists(path):
+                        print("makepath: ", path)
+                        os.mkdir(path)
+                    fname = os.path.join(path, f'{int(time.time())}.jpg')
+                    cv2.imwrite(fname, cam)
                 
         print(loss_meter.avg)
         h0.remove()
