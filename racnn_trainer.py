@@ -611,10 +611,6 @@ class RACNN_Trainer():
             data, target = data.to(self.device), target.to(self.device)
             B = data.shape[0]
             H, W = data.shape[-2:]
-<<<<<<< HEAD
-=======
-
->>>>>>> yanglei
             self.optimizer.zero_grad()
             with torch.set_grad_enabled(True):
                 if self.time_consistency:
