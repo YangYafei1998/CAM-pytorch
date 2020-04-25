@@ -181,10 +181,10 @@ class RACNN_Trainer():
 
     ## pre-train session
     def pretrain(self):
-        # for i in range(0, 5):
-        #     self.pretrain_classification()
-        #     self._save_checkpoint(i, pretrain_ckp=True)
-        for _ in range(6):
+        for i in range(1):
+            self.pretrain_classification()
+            # self._save_checkpoint(i, pretrain_ckp=True)
+        for _ in range(1):
             self.pretrain_apn()
         print("Pre-train Finished")
 
@@ -193,8 +193,6 @@ class RACNN_Trainer():
     def train(self, max_epoch, do_validation=True):
         if max_epoch is not None:
             self.max_epoch = max_epoch
-        
-        self.pretrain()
 
         self.test_one_epoch(0)
 
@@ -397,7 +395,7 @@ class RACNN_Trainer():
             #    ncols=80, 
             #    leave=False):
             for batch_idx, batch in enumerate(self.testloader):
-                data, target, idx, locationGT = batch
+                data, target, idx = batch
                 data, target = data.to(self.device), target.to(self.device)
                 B = data.shape[0]
                 assert B == 1, "test batch size should be 1"
@@ -471,7 +469,7 @@ class RACNN_Trainer():
 
     ##
     def pretrain_classification(self, max_epoch=5):
-        print("pretran Classification")
+        print("pretrain Classification")
 
         self.model.train()
         for batch_idx, batch in tqdm.tqdm(
@@ -483,6 +481,8 @@ class RACNN_Trainer():
         # for batch_idx, batch in enumerate(self.trainloader):
             data, target, idx = batch
             target = self.generate_confusion_target(target)
+            
+            if batch_idx == 5: break
 
             data, target = data.to(self.device), target.to(self.device)
             B = data.shape[0]
@@ -531,10 +531,13 @@ class RACNN_Trainer():
             ncols=80, 
             leave=False):
         # for batch_idx, batch in enumerate(self.trainloader):
-            data, target, idx, _ = batch
+            data, target, idx = batch
             img_path = self.testloader.dataset.get_fname(idx)
             img = cv2.imread(img_path[0], -1) ## [H, W, C]
             target = self.generate_confusion_target(target)
+
+            if batch_idx == 5: break
+
 
             data, target = data.to(self.device), target.to(self.device)
             B = data.shape[0]
@@ -572,6 +575,7 @@ class RACNN_Trainer():
                 self.optimizer.step()
                 loss_meter.update(loss.item())
         print(loss_meter.avg)
+        h0.remove()
         return 
     
     # generate class activation mapping for the top1 prediction

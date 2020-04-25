@@ -117,18 +117,17 @@ class RACNN(nn.Module):
             )
 
         ## attention proposal head between scales 0 and 1
-        self.apn_map_scale_01 = nn.Sequential(
-            nn.Conv2d(512, 128, kernel_size=1, bias=False),
+        self.apn_conv_01 = nn.Sequential(
+            nn.Conv2d(512, 64, kernel_size=1, bias=False),
             nn.LeakyReLU(0.2),
-            # nn.Tanh(),
-            nn.Conv2d(128, 1, kernel_size=1, bias=False),
-            nn.LeakyReLU(0.2),
-            # nn.Tanh(),
             )
-        self.apn_map_flatten_01 = nn.Sequential(
-            nn.Linear(14*14+self.num_classes, 3, bias=True),
-            # nn.Linear(14*14, 3, bias=True),
-            # nn.Tanh() ## tanh results seem to be worse
+        self.apn_regress_01 = nn.Sequential(
+            nn.Linear(14*14*64, 1000, bias=True),
+            nn.ReLU(),
+            nn.Dropout(),
+            nn.Linear(1000, 3, bias=True),
+            nn.ReLU(),
+            nn.Dropout(),
             nn.Sigmoid() ## chosen
         ) 
 
@@ -149,45 +148,13 @@ class RACNN(nn.Module):
             return self.classifier_1(self.drop(f_gap).squeeze(2).squeeze(2)), f_gap, f_conv
         else:
             raise NotImplementedError
-        
-    def apn(self, xgap, lvl):
-        # x = self.drop(x)
-        # print(x.shape)
-        shift = torch.tensor([[0.5, 0.5, -0.5]]).to(xgap.device)
-        scale = torch.tensor([[1.0, 1.0, 0.5]]).to(xgap.device)
-        if lvl == 0:
-            t = self.apn_scale_01(xgap.squeeze(2).squeeze(2))
-            # shift the sigmoid output to ( [-0.5,0.5], [-0.5,0.5], [0,0.7] ) 
-            t = (t-shift)*scale
-            #print(t[0,...])
-            return t
-        else:
-            raise NotImplementedError
             
-    def apn_map(self, xconv, target, lvl):
+    def apn_map(self, xconv, lvl):
         # x = self.drop(x)
         # print(x.shape)
-        # shift = torch.tensor([[0.0, 0.0, 1.0]]).to(xconv.device)
-        # scale = torch.tensor([[0.5, 0.5, 0.4]]).to(xconv.device)
         shift = torch.tensor([[0.5, 0.5, -1.0]]).to(xconv.device)
         scale = torch.tensor([[1.0, 1.0, 0.4]]).to(xconv.device)
         if lvl == 0:
-            # xconv = self.apn_map_scale_01(xconv)
-            # xconv = xconv.flatten(start_dim=1)
-            
-            ## channelwise pooling 
-            B, C = xconv.shape[0:2]
-            xconv = xconv.view(B, C, -1)
-            xconv = xconv.permute(0,2,1)
-            xconv = F.adaptive_avg_pool1d(xconv, 1).squeeze(2)
-            
-            if target is not None:
-                ## convert to one-hot
-                target_ = torch.FloatTensor(target.shape[0], self.num_classes).to(xconv.device)
-                target_.zero_()
-                target_.scatter_(1, target, 1)
-                xconv = torch.cat([xconv, target_], dim=-1)
-
             t = self.apn_map_flatten_01(xconv)
             # shift the sigmoid output to ( [-0.5,0.5], [-0.5,0.5], [0.4,0.8] ) 
             t = (t-shift)*scale
@@ -213,16 +180,13 @@ class RACNN(nn.Module):
             self.unfreeze_network(self.conv_scale_1)
             self.unfreeze_network(self.classifier_0)
             self.unfreeze_network(self.classifier_1)
-            self.unfreeze_network(self.apn_scale_01)
+            self.unfreeze_network(self.apn_conv_01)
+            self.unfreeze_network(self.apn_regress_01)
+
 
         ## classification scale 1
         out_0, f_gap_0, f_conv0 = self.classification(x, lvl=0)
-        
-        # ## zoom in
-        # # t0 = self.apn(f_gap_0, lvl=0) ## [B, 3]
-        if target is None:
-            target = torch.argmax(out_0, dim=-1).unsqueeze(1) ## [B, 1]
-        t0 = self.apn_map(f_conv0, target, lvl=0) ## [B, 3]
+        t0 = self.apn_map(f_conv0, lvl=0) ## [B, 3]
         grid = self.grid_sampler(t0) ## [B, H, W, 2]
         x1 = F.grid_sample(x, grid, align_corners=False, padding_mode='border') ## [B, 3, H, W] sampled using grid parameters
         ## classification scale 2

@@ -244,10 +244,6 @@ class CAMDrawer():
         #generate bbox from CAM 
         prop = generate_bbox(CAM, self.bar)
         bbox_img = cv2.rectangle(result, (prop.bbox[1], prop.bbox[0]), (prop.bbox[3], prop.bbox[2]), (0, 0, 255), 2)
-        ## draw zoom-in box
-        bbox_img = cv2.rectangle(bbox_img, (top_lefts[0], top_lefts[1]), (buttom_rights[0], buttom_rights[1]), (0,255,0), 2)
-        ## draw zoom-in center
-        bbox_img = cv2.rectangle(bbox_img, (ctrs[0]-1,ctrs[1]-1), (ctrs[0]+1, ctrs[1]+1), (0,255,0), 2)
         
         if GT is not None:
             line_coord = GT.split()
@@ -368,7 +364,11 @@ class CAMDrawer():
         #generate bbox from CAM 
         prop = generate_bbox(CAM, self.bar)
         bbox_img = cv2.rectangle(result, (prop.bbox[1], prop.bbox[0]), (prop.bbox[3], prop.bbox[2]), (0, 0, 255), 2)
-
+        ## draw zoom-in box
+        bbox_img = cv2.rectangle(bbox_img, (top_left[0], top_left[1]), (buttom_right[0], buttom_right[1]), (0,255,0), 2)
+        ## draw zoom-in center
+        bbox_img = cv2.rectangle(bbox_img, (ctr[0]-1,ctr[1]-1), (ctr[0]+1, ctr[1]+1), (0,255,0), 2)
+        
         if GT is not None:
             line_coord = GT.split()
             gt_image = np.zeros((256, 256), dtype=np.uint8)

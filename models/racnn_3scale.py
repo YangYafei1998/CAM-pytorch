@@ -86,27 +86,17 @@ class RACNN3Scale(nn.Module):
             self.clsfierList.append(nn.Linear(512, num_classes))
             
         ## attention proposal head between scales 0 and 1
-        self.apn_scale_01 = nn.Sequential(
-            nn.Linear(512, 256, bias=True),
-            nn.Dropout(0.2),
-            nn.Linear(256, 128, bias=True),
-            nn.Dropout(0.2),
-            nn.Linear(128, 3, bias=True),
-            nn.Sigmoid()
-            )
-        ## attention proposal head between scales 0 and 1
-        self.apn_map_scale_01 = nn.Sequential(
-            nn.Conv2d(512, 128, kernel_size=1, bias=False),
+        self.apn_conv_01 = nn.Sequential(
+            nn.Conv2d(512, 64, kernel_size=1, bias=False),
             nn.LeakyReLU(0.2),
-            # nn.Tanh(),
-            nn.Conv2d(128, 1, kernel_size=1, bias=False),
-            nn.LeakyReLU(0.2),
-            # nn.Tanh(),
             )
-        self.apn_map_flatten_01 = nn.Sequential(
-            nn.Linear(14*14+self.num_classes, 3, bias=True),
-            # nn.Linear(14*14, 3, bias=True),
-            # nn.Tanh() ## tanh results seem to be worse
+        self.apn_regress_01 = nn.Sequential(
+            nn.Linear(14*14*64, 1000, bias=True),
+            nn.ReLU(),
+            nn.Dropout(),
+            nn.Linear(1000, 3, bias=True),
+            nn.ReLU(),
+            nn.Dropout(),
             nn.Sigmoid() ## chosen
         ) 
 
@@ -118,45 +108,14 @@ class RACNN3Scale(nn.Module):
         f_conv = self.convList[lvl](x)
         f_gap = self.gap(f_conv)
         return self.clsfierList[lvl](self.drop(f_gap).squeeze(2).squeeze(2)), f_gap, f_conv
-    
-    def apn(self, xgap, lvl):
-        # x = self.drop(x)
-        # print(x.shape)
-        shift = torch.tensor([[0.5, 0.5, -0.5]]).to(xgap.device)
-        scale = torch.tensor([[1.0, 1.0, 0.3]]).to(xgap.device)
-        if lvl == 0:
-            t = self.apn_scale_01(xgap.squeeze(2).squeeze(2))
-            # shift the sigmoid output to ( [-0.5,0.5], [-0.5,0.5], [0,0.7] ) 
-            t = (t-shift)*scale
-            #print(t[0,...])
-            return t
-        else:
-            raise NotImplementedError
             
     def apn_map(self, xconv, target, lvl):
         shift = torch.tensor([[0.5, 0.5, -1.0]]).to(xconv.device)
         scale = torch.tensor([[1.0, 1.0, 0.4]]).to(xconv.device)
         if lvl == 0:
-            # xconv = self.apn_map_scale_01(xconv)
-            # xconv = xconv.flatten(start_dim=1)
-            
-            ## channelwise pooling 
-            B, C = xconv.shape[0:2]
-            xconv = xconv.view(B, C, -1)
-            xconv = xconv.permute(0,2,1)
-            xconv = F.adaptive_avg_pool1d(xconv, 1).squeeze(2)
-            
-            if target is not None:
-                ## convert to one-hot
-                target_ = torch.FloatTensor(target.shape[0], self.num_classes).to(xconv.device)
-                target_.zero_()
-                target_.scatter_(1, target, 1)
-                xconv = torch.cat([xconv, target_], dim=-1)
-
-            t = self.apn_map_flatten_01(xconv)
+            t = self.apn_regress_01(self.apn_conv_01(xconv).flatten(start_dim=1))
             # shift the sigmoid output to ( [-0.5,0.5], [-0.5,0.5], [0.4,0.8] ) 
             t = (t-shift)*scale
-            #print(t[0,...])
             return t
         else:
             raise NotImplementedError
@@ -172,7 +131,9 @@ class RACNN3Scale(nn.Module):
             self.unfreeze_network(self.baseList)
             self.unfreeze_network(self.convList)
             self.unfreeze_network(self.clsfierList)
-            self.unfreeze_network(self.apn_scale_01)
+            self.unfreeze_network(self.apn_conv_01)
+            self.unfreeze_network(self.apn_regress_01)
+
 
         ## 
         out_list = []
@@ -185,7 +146,7 @@ class RACNN3Scale(nn.Module):
         for lvl in range(1,self.lvls):
             if target is None:
                 target = torch.argmax(out, dim=-1).unsqueeze(1) ## [B, 1]
-            t = self.apn_map(f_conv, target, lvl=0) ## [B, 3]
+            t = self.apn_map(f_conv, target=None, lvl=0) ## [B, 3]
             t_list.append(t)
             grid = self.grid_sampler(t) ## [B, H, W, 2]
             xz = F.grid_sample(xz, grid, align_corners=False, padding_mode='reflection') ## [B, 3, H, W] sampled using grid parameters

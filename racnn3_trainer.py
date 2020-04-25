@@ -174,12 +174,11 @@ class RACNN3_Trainer():
 
     ## pre-train session
     def pretrain(self):
-        
-        for _ in range(7):
+        for _ in range(4):
             self.pretrain_classification()
-        for i in range(3):
+        for i in range(2):
             self.pretrain_apn(epoch=i)
-        self.test_pretrained_apn(epoch=2)
+        self.test_pretrained_apn(epoch=0)
         print("Pre-train Finished")
 
 
@@ -462,7 +461,7 @@ class RACNN3_Trainer():
                 leave=False):
             # for batch_idx, batch in enumerate(self.trainloader):
 
-                if batch_idx == 5: break
+                # if batch_idx == 5: break
 
                 self.optimizer.zero_grad()
                 data, target, idx = batch
@@ -531,7 +530,7 @@ class RACNN3_Trainer():
                 leave=False):
             # for batch_idx, batch in enumerate(self.trainloader):
 
-                if batch_idx == 5: break
+                # if batch_idx == 5: break
 
                 self.optimizer.zero_grad()
                 data, target, idx = batch
@@ -634,11 +633,10 @@ class RACNN3_Trainer():
                 
                 loss_meter.update(loss.detach().item(), 1)
 
-                
+                ## write cams
                 lvl = 0
                 img_path = self.testloader.dataset.get_fname(idx)
                 weight_softmax_gt = weight_softmax_list[lvl][target.cpu(), :]
-
                 # epoch, gt_lbl, img_path, 
                 # prob, weight_softmax, feature, theta, 
                 # sub_folder=None, GT=None
@@ -647,20 +645,22 @@ class RACNN3_Trainer():
                     gt_probs, weight_softmax_gt, f_conv_list[lvl], theta=t_list[lvl][0].cpu(), 
                     sub_folder=f'pretrain_apn_scale_{lvl}')
 
-            # if b_draw_cams and epoch % self.save_period == 0:
-            #     timestamp = self.result_folder.split(os.sep)[-2]
-            #     for lvl in range(self.lvls):
-            #         cam_path_scale = os.path.join(self.result_folder, f'pretrain_apn_scale_{lvl}', f"epoch{epoch}")
-            #         videoname = f'video_apn_epoch{epoch}_{timestamp}_scale{lvl}.avi'
-            #         videoname = os.path.join(self.result_folder, videoname)
-            #         write_video_from_images(cam_path_scale, videoname)
-            #         shutil.rmtree(cam_path_scale)
             
+            timestamp = self.result_folder.split(os.sep)[-2]
+            lvl = 0
+            cam_path_scale = os.path.join(self.result_folder, f'pretrain_apn_scale_{lvl}', f"epoch{epoch}")
+            videoname = f'video_apn_epoch{epoch}_{timestamp}_scale{lvl}.avi'
+            videoname = os.path.join(self.result_folder, videoname)
+            write_video_from_images(cam_path_scale, videoname)
+            shutil.rmtree(cam_path_scale)
+    
             ## end-for
         print("pretrain_apn loss: ", loss_meter.avg)                    
         h0.remove()
         h1.remove()
         h2.remove()
+        return
+
 
     def compute_cam_area_in_box(self, feature, class_weight, box_theta):
         B, C, H, W = feature.shape
