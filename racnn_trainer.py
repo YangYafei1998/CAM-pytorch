@@ -189,9 +189,9 @@ class RACNN_Trainer():
 
     ## pre-train session
     def pretrain(self):
-        for i in range(0, 5):
-            self.pretrain_classification()
-            self._save_checkpoint(i, pretrain_ckp=True)
+        # for i in range(0, 5):
+        #     self.pretrain_classification()
+        #     self._save_checkpoint(i, pretrain_ckp=True)
         for _ in range(6):
             self.pretrain_apn()
         print("Pre-train Finished")
@@ -279,6 +279,7 @@ class RACNN_Trainer():
             self.optimizer.zero_grad()
             with torch.set_grad_enabled(True):
                 # data [B, C, H, W]
+
                 if self.time_consistency:
                     data = data.view(B*3, 3, H, W)
                     target = target.view(B*3)
@@ -490,10 +491,15 @@ class RACNN_Trainer():
             target = self.generate_confusion_target(target)
             data, target = data.to(self.device), target.to(self.device)
             B = data.shape[0]
+            H, W = data.shape[-2:]
             # if batch_idx == 5: break
 
             self.optimizer.zero_grad()
             with torch.set_grad_enabled(True):
+
+                if self.time_consistency:
+                    data = data.view(B*3, 3, H, W)
+                    target = target.view(B*3)
                 # data [B, C, H, W]
                 out_0, out_1, t_01, _ = self.model(data, target=target.unsqueeze(1)) ## [B, NumClasses]
 
@@ -555,13 +561,16 @@ class RACNN_Trainer():
         # for batch_idx, batch in enumerate(self.trainloader):
             
             data, target, idx = batch
-            
+
             target = self.generate_confusion_target(target)
             data, target = data.to(self.device), target.to(self.device)
             B = data.shape[0]
-
+            H, W = data.shape[-2:]
             self.optimizer.zero_grad()
             with torch.set_grad_enabled(True):
+                if self.time_consistency:
+                    data = data.view(B*3, 3, H, W)
+                    target = target.view(B*3)
                 # data [B, C, H, W]
                 out_0, out_1, t_01, _ = self.model(data, target.unsqueeze(1), 1) ## [B, NumClasses]
                 # print(t_01)
@@ -569,27 +578,25 @@ class RACNN_Trainer():
 
                 ### ---- original implementation for batchsize 1
                 ### get cropped region calculated by the APN
-                out_len = 256 * t_01[0][2]
-                out_center_x = (1 + t_01[0][0]) * 128
-                out_center_y = (1 + t_01[0][1]) * 128
-                ### get CAM peak
-                coordinate, heatmap = self.get_cam_peak(f_conv_0[-1], weight_softmax_0[target,:])
-                cam = heatmap * 0.3 + img * 0.5
-                cv2.rectangle(cam, (coordinate[1], coordinate[0]), (coordinate[3], coordinate[2]), (0, 255, 0), 2)#peak activation region
-                cv2.rectangle(cam, (out_center_x - out_len/2, out_center_y - out_len/2), (out_center_x + out_len/2, out_center_x + out_len/2), (0, 0, 255), 2) # cropped region by APN
+                # out_len = 256 * t_01[0][2]
+                # out_center_x = (1 + t_01[0][0]) * 128
+                # out_center_y = (1 + t_01[0][1]) * 128
+                # ### get CAM peak
+                # coordinate, heatmap = self.get_cam_peak(f_conv_0[-1], weight_softmax_0[target,:])
+                # cam = heatmap * 0.3 + img * 0.5
+                # cv2.rectangle(cam, (coordinate[1], coordinate[0]), (coordinate[3], coordinate[2]), (0, 255, 0), 2)#peak activation region
+                # cv2.rectangle(cam, (out_center_x - out_len/2, out_center_x - out_len/2), (out_center_x + out_len/2, out_center_x + out_len/2), (0, 0, 255), 2) # cropped region by APN
+                # center_x = (coordinate[1]+coordinate[3])/2
+                # cam_x = (center_x - 128)/128
+                # center_y = (coordinate[0]+coordinate[2])/2
+                # cam_y = (center_y - 128)/128
+                # cam_l = (coordinate[3]-coordinate[1]+coordinate[2]-coordinate[0])/(2*256)
+                ### ---- original implementation for batchsize 1
 
-                center_x = (coordinate[1]+coordinate[3])/2
-                cam_x = (center_x - 128)/128
-                center_y = (coordinate[0]+coordinate[2])/2
-                cam_y = (center_y - 128)/128
-                cam_l = (coordinate[3]-coordinate[1]+coordinate[2]-coordinate[0])/(2*256)
 
-                target_pos = torch.FloatTensor(np.array([cam_x, cam_y, cam_l]))
-
-                write_text_to_img(cam, f"target: {target}", org=(20,50), fontScale = 0.3)
-                write_text_to_img(cam, f"t_01: {t_01}", org=(20,65), fontScale = 0.3)
-                write_text_to_img(cam, f"target: {target_pos}", org=(20,80), fontScale = 0.3)
-                cv2.imwrite('/userhome/30/yfyang/CAM-pytorch/saved/debug/'+f'{int(time.time())}.jpg', cam)
+                out_len = 256 * t_01[:,2]
+                out_center_x = (1 + t_01[:,0]) * 128
+                out_center_y = (1 + t_01[:,1]) * 128
                 
                 ### get CAM peak
                 ## coordinate is the pixel of the peak
@@ -601,11 +608,14 @@ class RACNN_Trainer():
                 gt_len = (coordinates[:,3]-coordinates[:,1]+coordinates[:,2]-coordinates[:,0])/(2*256)
                 target_pos = torch.FloatTensor(np.stack([gt_center_x, gt_center_y, gt_len], axis=1)).to(self.device)
 
-                gt_center_x = 0.3
-                gt_center_y = 0.3
-                gt_len = 0.4
-                target_pos = torch.tensor([[gt_center_x, gt_center_y, gt_len]])
-                target_pos = target_pos.repeat([B, 1]).to(self.device)
+                # gt_center_x = 0.3
+                # gt_center_y = 0.3
+                # gt_len = 0.4
+                # target_pos = torch.tensor([[gt_center_x, gt_center_y, gt_len]])
+                # target_pos = target_pos.repeat([B*3, 1]).to(self.device)
+                # print(t_01)
+                # print(target_pos)
+                # print(B)
                 loss = F.mse_loss(t_01, target_pos, reduction='none').sum()
                 print(loss)
                 loss.backward()
@@ -614,8 +624,9 @@ class RACNN_Trainer():
                 loss_meter.update(loss.item())
 
                 ## draw images
-                img_path = self.trainloader.dataset.get_fname(idx)
+                img_path = self.trainloader.dataset.get_fname(idx[0])
                 for i in range(B):
+                    # img_path = self.trainloader.dataset.get_fname([idx[j][0].item()])
                     img = cv2.imread(img_path[i], -1) ## [H, W, C]
                     cam = heatmaps[i,:] * 0.3 + img * 0.5
                     coordinate = coordinates[i,:]
