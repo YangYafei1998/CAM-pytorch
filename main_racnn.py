@@ -96,8 +96,8 @@ def main(config):
     else:
         raise NotImplementedError
 
-    # trainer.pretrain()
-    trainer.train(EPOCH, do_validation=True)
+    trainer.pretrain()
+    # trainer.train(EPOCH, do_validation=True)
 
 
 if __name__ == '__main__':

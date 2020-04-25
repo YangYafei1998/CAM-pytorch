@@ -4,7 +4,7 @@ import os
 import tqdm
 from datetime import datetime
 import collections
-from utils.cam_drawer import CAMDrawer
+from utils.cam_drawer import CAMDrawer, largest_component, generate_bbox, returnCAM, write_text_to_img
 
 import torch
 import torch.nn.functional as F
@@ -113,6 +113,21 @@ class RACNN3_Trainer():
         self.augmenter = DataAugmentation()
 
 
+    def generate_confusion_target(self, target):
+        for confusion_idx in range(3, 6):
+            target_cofusion = target==confusion_idx
+            target_replace = torch.randn(torch.sum(target_cofusion))
+            if confusion_idx == 3:
+                target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([2]))
+                target[target_cofusion] = target_replace
+            elif confusion_idx == 4:
+                target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([1]))
+                target[target_cofusion] = target_replace
+            elif confusion_idx == 5:
+                target_replace = torch.where(target_replace>0, torch.tensor([1]), torch.tensor([2]))
+                target[target_cofusion] = target_replace
+        assert torch.sum(target==0)+torch.sum(target==1)+torch.sum(target==2) == target.numel()
+        return target
 
     ## save checkpoint including model and other relevant information
     def _save_checkpoint(self, epoch, save_best=False):
@@ -174,11 +189,11 @@ class RACNN3_Trainer():
 
     ## pre-train session
     def pretrain(self):
-        for _ in range(4):
+        for _ in range(1):
             self.pretrain_classification()
         for i in range(2):
             self.pretrain_apn(epoch=i)
-        self.test_pretrained_apn(epoch=0)
+        # self.test_pretrained_apn(epoch=0)
         print("Pre-train Finished")
 
 
@@ -452,18 +467,19 @@ class RACNN3_Trainer():
         acc_meter = AverageMeter()
 
         self.model.train()
-        with torch.set_grad_enabled(True):
-            for batch_idx, batch in tqdm.tqdm(
-                enumerate(self.trainloader), 
-                total=len(self.trainloader),
-                desc='pretrain_cls'+': ', 
-                ncols=80, 
-                leave=False):
-            # for batch_idx, batch in enumerate(self.trainloader):
+        for batch_idx, batch in tqdm.tqdm(
+            enumerate(self.trainloader), 
+            total=len(self.trainloader),
+            desc='pretrain_cls'+': ', 
+            ncols=80, 
+            leave=False):
+        # for batch_idx, batch in enumerate(self.trainloader):
 
-                # if batch_idx == 5: break
+            if batch_idx == 5: break
 
-                self.optimizer.zero_grad()
+            self.optimizer.zero_grad()
+            with torch.set_grad_enabled(True):
+
                 data, target, idx = batch
                 target = self.generate_confusion_target(target)
 
@@ -471,7 +487,7 @@ class RACNN3_Trainer():
                 B = data.shape[0]
 
                 # data [B, C, H, W]
-                out_list, t_list = self.model(data, target=target.unsqueeze(1), train_config=0) ## [B, NumClasses]
+                out_list, t_list = self.model(data, target.unsqueeze(1), 0) ## [B, NumClasses]
 
                 ### Classification loss
                 cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_list[0], target, reduction='none')
@@ -484,183 +500,92 @@ class RACNN3_Trainer():
                 acc_meter.update(train_acc, 1)
                 loss_meter.update(loss)
             
-            print("pretrain_classification loss: ", loss_meter.avg)
-            print("pretrain_classification acc: ", acc_meter.avg)
-
-
+        print("pretrain_classification loss: ", loss_meter.avg)
+        print("pretrain_classification acc: ", acc_meter.avg)
         return
 
 
     ##
-    def pretrain_apn(self, epoch, max_epoch=1, b_draw_cams=False):
+    def pretrain_apn(self, epoch):
         print("pretran APN")
 
         loss_meter = AverageMeter()
 
         self.model.train()
-        with torch.set_grad_enabled(True):
-            ## weight
-            weight_softmax_list=[]
-            for lvl in range(self.lvls):
-                params_classifier = list(self.model.clsfierList[lvl].parameters())
-                weight_softmax_list.append(np.squeeze(params_classifier[-2].data.detach().cpu().numpy()))
-            # hook the feature extractor instantaneously and remove it once data is hooked
-            # f_conv_0, f_conv_1, f_conv_2 = [], [], []
-            f_conv_list = []
-            def hook_feature_conv_scale_0(module, input, output):
-                f_conv_list.clear()
-                assert 0==len(f_conv_list)
-                f_conv_list.append(output.data.detach().cpu().numpy())
-            def hook_feature_conv_scale_1(module, input, output):
-                assert 1==len(f_conv_list)
-                f_conv_list.append(output.detach().cpu().numpy())
-            def hook_feature_conv_scale_2(module, input, output):
-                assert 2==len(f_conv_list)
-                f_conv_list.append(output.data.detach().cpu().numpy())
-            ## place hooker
-            h0 = self.model.convList[0][-2].register_forward_hook(hook_feature_conv_scale_0)
-            h1 = self.model.convList[1][-2].register_forward_hook(hook_feature_conv_scale_1)
-            h2 = self.model.convList[2][-2].register_forward_hook(hook_feature_conv_scale_2)
+        ## weight
+        params_classifier_0 = list(self.model.clsfierList[0].parameters())
+        weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.detach().cpu().numpy())
 
-            for batch_idx, batch in tqdm.tqdm(
-                enumerate(self.trainloader), 
-                total=len(self.trainloader),
-                desc='pretrain_apn'+': ', 
-                ncols=80, 
-                leave=False):
-            # for batch_idx, batch in enumerate(self.trainloader):
+        # hook the feature extractor instantaneously and remove it once data is hooked
+        f_conv_0 = []
+        def hook_feature_conv_scale_0(module, input, output):
+            f_conv_0.clear()
+            f_conv_0.append(output.data.detach().cpu().numpy())
 
-                # if batch_idx == 5: break
+        ## place hooker
+        h0 = self.model.convList[0][-2].register_forward_hook(hook_feature_conv_scale_0)
 
-                self.optimizer.zero_grad()
-                data, target, idx = batch
-                target = self.generate_confusion_target(target)
+        # print(len(f_conv_0))
+        for batch_idx, batch in tqdm.tqdm(
+            enumerate(self.trainloader), 
+            total=len(self.trainloader),
+            desc='pretrain_apn'+': ', 
+            ncols=80, 
+            leave=False):
+        # for batch_idx, batch in enumerate(self.trainloader):
+            data, target, idx = batch
+            img_path = self.trainloader.dataset.get_fname(idx)
+            img = cv2.imread(img_path[0], -1) ## [H, W, C]
+            target = self.generate_confusion_target(target)
 
-                data, target = data.to(self.device), target.to(self.device)
-                B = data.shape[0]
+            if batch_idx == 5: break
 
+
+            data, target = data.to(self.device), target.to(self.device)
+            B = data.shape[0]
+
+            self.optimizer.zero_grad()
+            with torch.set_grad_enabled(True):
                 # data [B, C, H, W]
                 out_list, t_list = self.model(data, target=target.unsqueeze(1), train_config=1) ## [B, NumClasses]
-                probs = F.softmax(out_list[lvl], dim=-1)
-                gt_probs = probs[list(range(B)), target]
 
+                t_01 = t_list[0]
+                ### get cropped region calculated by the APN
+                out_len = 256 * t_01[0][2]
+                out_center_x = (1 + t_01[0][0]) * 128
+                out_center_y = (1 + t_01[0][1]) * 128
                 ### get CAM peak
-                lvl = 0
-                feature = torch.from_numpy(f_conv_list[lvl])
-                class_weight = torch.from_numpy(weight_softmax_list[lvl])[target,:]
-                loss = self.compute_cam_area_in_box(feature, class_weight, t_list[lvl])
+                coordinate, heatmap = self.get_cam_peak(f_conv_0[-1], weight_softmax_0[target.cpu(),:])
+                cam = heatmap * 0.3 + img * 0.5
+                cv2.rectangle(cam, (coordinate[1], coordinate[0]), (coordinate[3], coordinate[2]), (0, 255, 0), 2)#peak activation region
+                cv2.rectangle(cam, (out_center_x - out_len/2, out_center_x - out_len/2), (out_center_x + out_len/2, out_center_x + out_len/2), (0, 0, 255), 2) # cropped region by APN
+
+                center_x = (coordinate[1]+coordinate[3])/2
+                cam_x = (center_x - 128)/128
+                center_y = (coordinate[0]+coordinate[2])/2
+                cam_y = (center_y - 128)/128
+                cam_l = (coordinate[3]-coordinate[1]+coordinate[2]-coordinate[0])/(2*256)
+
+                target_pos = torch.FloatTensor(np.array([cam_x, cam_y, cam_l])).to(self.device)
+                loss = F.mse_loss(t_01[0], target_pos)
+                
                 loss.backward()
                 self.optimizer.step()
-                loss_meter.update(loss.detach().item(), 1)
+                loss_meter.update(loss.item())
+                
+                write_text_to_img(cam, f"target: {target}", org=(20,50), fontScale = 0.3)
+                write_text_to_img(cam, f"t_01: {t_01}", org=(20,65), fontScale = 0.3)
+                write_text_to_img(cam, f"target: {target_pos}", org=(20,80), fontScale = 0.3)
+                filename = f'{int(time.time())}.jpg'
+                path = os.path.join(self.result_folder, f'preapn_epoch{epoch}')
 
-            #     if b_draw_cams:
-            #         lvl = 0
-            #         img_path = self.trainloader.dataset.get_fname(idx)
-            #         weight_softmax_gt = weight_softmax_list[lvl][target.cpu(), :]
-            #         self.drawer.draw_multiple_cams_with_zoom_in_box(
-            #             epoch, target, img_path, 
-            #             gt_probs, weight_softmax_gt, f_conv_list[lvl], 
-            #             thetas=t_list[lvl].detach().cpu(), sub_folder=f'pretrain_apn_scale_{lvl}')
-
-            # if b_draw_cams and epoch % self.save_period == 0:
-            #     timestamp = self.result_folder.split(os.sep)[-2]
-            #     for lvl in range(self.lvls):
-            #         cam_path_scale = os.path.join(self.result_folder, f'pretrain_apn_scale_{lvl}', f"epoch{epoch}")
-            #         videoname = f'video_apn_epoch{epoch}_{timestamp}_scale{lvl}.avi'
-            #         videoname = os.path.join(self.result_folder, videoname)
-            #         write_video_from_images(cam_path_scale, videoname)
-            #         shutil.rmtree(cam_path_scale)
-            
-            ## end-for
-        print("pretrain_apn loss: ", loss_meter.avg)                    
+                filename = os.path.join(path, filename)
+                cv2.imwrite(filename, cam)
+                
+                
+        print(loss_meter.avg)
         h0.remove()
-        h1.remove()
-        h2.remove()
         return 
-    
-    def test_pretrained_apn(self, epoch=None):
-        loss_meter = AverageMeter()
-        self.model.eval()
-        with torch.no_grad():
-            ## weight
-            weight_softmax_list=[]
-            for lvl in range(self.lvls):
-                params_classifier = list(self.model.clsfierList[lvl].parameters())
-                weight_softmax_list.append(np.squeeze(params_classifier[-2].data.cpu().numpy()))
-            # hook the feature extractor instantaneously and remove it once data is hooked
-            # f_conv_0, f_conv_1, f_conv_2 = [], [], []
-            f_conv_list = []
-            def hook_feature_conv_scale_0(module, input, output):
-                f_conv_list.clear()
-                assert 0==len(f_conv_list)
-                f_conv_list.append(output.data.cpu().numpy())
-            def hook_feature_conv_scale_1(module, input, output):
-                assert 1==len(f_conv_list)
-                f_conv_list.append(output.data.cpu().numpy())
-            def hook_feature_conv_scale_2(module, input, output):
-                assert 2==len(f_conv_list)
-                f_conv_list.append(output.data.cpu().numpy())
-            ## place hooker
-            h0 = self.model.convList[0][-2].register_forward_hook(hook_feature_conv_scale_0)
-            h1 = self.model.convList[1][-2].register_forward_hook(hook_feature_conv_scale_1)
-            h2 = self.model.convList[2][-2].register_forward_hook(hook_feature_conv_scale_2)
-
-            for batch_idx, batch in tqdm.tqdm(
-                enumerate(self.testloader), 
-                total=len(self.testloader),
-                desc='test pretrain_apn'+': ', 
-                ncols=80, 
-                leave=False):
-            # for batch_idx, batch in enumerate(self.trainloader):
-
-                
-                data, target, idx = batch
-                target = self.generate_confusion_target(target)
-
-                data, target = data.to(self.device), target.to(self.device)
-                B = data.shape[0]
-
-                # data [B, C, H, W]
-                out_list, t_list = self.model(data, target=target.unsqueeze(1), train_config=1) ## [B, NumClasses]
-                probs = F.softmax(out_list[lvl], dim=-1)
-                gt_probs = probs[list(range(B)), target]
-
-                ### get CAM peak
-                lvl = 0
-                feature = torch.from_numpy(f_conv_list[lvl])
-                class_weight = torch.from_numpy(weight_softmax_list[lvl])[target,:]
-                loss = self.compute_cam_area_in_box(feature, class_weight, t_list[lvl])
-                
-                loss_meter.update(loss.detach().item(), 1)
-
-                ## write cams
-                lvl = 0
-                img_path = self.testloader.dataset.get_fname(idx)
-                weight_softmax_gt = weight_softmax_list[lvl][target.cpu(), :]
-                # epoch, gt_lbl, img_path, 
-                # prob, weight_softmax, feature, theta, 
-                # sub_folder=None, GT=None
-                self.drawer.draw_single_cam_and_zoom_in_box(
-                    epoch, target, img_path[0], 
-                    gt_probs, weight_softmax_gt, f_conv_list[lvl], theta=t_list[lvl][0].cpu(), 
-                    sub_folder=f'pretrain_apn_scale_{lvl}')
-
-            
-            timestamp = self.result_folder.split(os.sep)[-2]
-            lvl = 0
-            cam_path_scale = os.path.join(self.result_folder, f'pretrain_apn_scale_{lvl}', f"epoch{epoch}")
-            videoname = f'video_apn_epoch{epoch}_{timestamp}_scale{lvl}.avi'
-            videoname = os.path.join(self.result_folder, videoname)
-            write_video_from_images(cam_path_scale, videoname)
-            shutil.rmtree(cam_path_scale)
-    
-            ## end-for
-        print("pretrain_apn loss: ", loss_meter.avg)                    
-        h0.remove()
-        h1.remove()
-        h2.remove()
-        return
-
 
     def compute_cam_area_in_box(self, feature, class_weight, box_theta):
         B, C, H, W = feature.shape
@@ -686,30 +611,11 @@ class RACNN3_Trainer():
     #     cam_img = np.uint8(255 * cam_img)
     #     return cam_img
     def get_cam_peak(self, feature, weight_softmax):
-        B, C = weight_softmax.shape
-        weight_softmax = weight_softmax.reshape(B, 1, C)
-        _, nc, h, w = feature.shape
-        cam = weight_softmax.bmm(feature.flatten(start_dim=2))
-        cam = cam.reshape(B, -1)
-        print('cam.shape: ', cam.shape)
-        max_loc = torch.argmax(cam, dim=-1)
-        # print('max_loc.shape: ', max_loc.shape)
-        # print('max_loc: ', max_loc)
-        # input()
-        return
+        # cam = returnCAM(feature.detach().cpu().numpy(), weight_softmax.detach().cpu().numpy())
+        cam = returnCAM(feature, weight_softmax)
+        cv2.imwrite('test.jpg', cam)
+        image = cv2.resize(cam, (256, 256))
+        prop = generate_bbox(image, 0.8)
+        heatmap = cv2.applyColorMap(image, cv2.COLORMAP_JET)
+        return prop.bbox, heatmap
 
-    def generate_confusion_target(self, target):
-        for confusion_idx in range(3, 6):
-            target_cofusion = target==confusion_idx
-            target_replace = torch.randn(torch.sum(target_cofusion))
-            if confusion_idx == 3:
-                target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([2]))
-                target[target_cofusion] = target_replace
-            elif confusion_idx == 4:
-                target_replace = torch.where(target_replace>0, torch.tensor([0]), torch.tensor([1]))
-                target[target_cofusion] = target_replace
-            elif confusion_idx == 5:
-                target_replace = torch.where(target_replace>0, torch.tensor([1]), torch.tensor([2]))
-                target[target_cofusion] = target_replace
-        assert torch.sum(target==0)+torch.sum(target==1)+torch.sum(target==2) == target.numel()
-        return target

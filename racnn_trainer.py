@@ -4,7 +4,7 @@ import os
 import tqdm
 from datetime import datetime
 import collections
-from utils.cam_drawer import CAMDrawer, largest_component, generate_bbox, returnCAM, write_text_to_img
+from utils.cam_drawer import CAMDrawer, largest_component, generate_bbox, returnCAM, returnTensorCAMs, write_text_to_img
 
 import torch
 import torch.nn.functional as F
@@ -15,6 +15,8 @@ from make_video import *
 
 import shutil
 
+
+### helper functions
 def theta2coordinate(theta, x, y, x_len, y_len):
     new_center_x = (1 + theta[0][0] * theta[0][2]) * 128 
     new_center_y = (1 + theta[0][1] * theta[0][2]) * 128
@@ -48,6 +50,12 @@ def theta2coordinate(theta, x, y, x_len, y_len):
         y_len = int(y_len/theta[0][2])
 
     return x, y, x_len, y_len
+
+
+def compute_acc(out, target, batch_size):
+    correct = (torch.max(out, dim=1)[1].view(target.size()).data == target.data).sum()
+    return 100. * correct / batch_size
+
 
 class RACNN_Trainer():
 
@@ -181,10 +189,10 @@ class RACNN_Trainer():
 
     ## pre-train session
     def pretrain(self):
-        for i in range(1):
+        for i in range(5):
             self.pretrain_classification()
             # self._save_checkpoint(i, pretrain_ckp=True)
-        for _ in range(1):
+        for _ in range(3):
             self.pretrain_apn()
         print("Pre-train Finished")
 
@@ -194,7 +202,7 @@ class RACNN_Trainer():
         if max_epoch is not None:
             self.max_epoch = max_epoch
 
-        self.test_one_epoch(0)
+        # self.test_one_epoch(0)
 
         for epoch in range(max_epoch):
             ## training
@@ -207,7 +215,7 @@ class RACNN_Trainer():
             # self.pretrain()
 
 
-            if epoch % self.interleaving_step == 0:
+            if epoch != 0 and epoch % self.interleaving_step == 0:
                 self.logger.info(f"APN\n")
                 log = self.train_one_epoch(epoch, 1)
                 self.logger.info(log)
@@ -330,10 +338,8 @@ class RACNN_Trainer():
                 # calculate accuracy
                 # print(out_0.shape)
                 # print(target.shape)
-                correct_0 = (torch.max(out_0, dim=1)[1].view(target.size()).data == target.data).sum()
-                train_acc_0 = 100. * correct_0 / B_out
-                correct_1 = (torch.max(out_1, 1)[1].view(target.size()).data == target.data).sum()
-                train_acc_1 = 100. * correct_1 / B_out
+                train_acc_0 = compute_acc(out_0, target, B_out)
+                train_acc_1 = compute_acc(out_1, target, B_out)
                 
                 loss_meter.update(loss, 1)
                 cls_loss_meter.update(cls_loss, 1)
@@ -417,10 +423,8 @@ class RACNN_Trainer():
                 rank_loss = rank_loss.sum()
 
                 # calculate accuracy
-                correct_0 = (torch.max(out_0, dim=1)[1].view(target.size()).data == target.data).sum()
-                train_acc_0 = 100. * correct_0 / self.testloader.batch_size
-                correct_1 = (torch.max(out_1, 1)[1].view(target.size()).data == target.data).sum()
-                train_acc_1 = 100. * correct_1 / self.testloader.batch_size
+                train_acc_0 = compute_acc(out_0, target, self.testloader.batch_size)
+                train_acc_1 = compute_acc(out_1, target, self.testloader.batch_size)
                 
                 cls_loss_meter.update(cls_loss, 1)
                 rank_loss_meter.update(rank_loss, 1)
@@ -471,6 +475,9 @@ class RACNN_Trainer():
     def pretrain_classification(self, max_epoch=5):
         print("pretrain Classification")
 
+        loss_meter = AverageMeter()
+        acc_meter= AverageMeter()
+
         self.model.train()
         for batch_idx, batch in tqdm.tqdm(
             enumerate(self.trainloader), 
@@ -481,11 +488,9 @@ class RACNN_Trainer():
         # for batch_idx, batch in enumerate(self.trainloader):
             data, target, idx = batch
             target = self.generate_confusion_target(target)
-            
-            if batch_idx == 5: break
-
             data, target = data.to(self.device), target.to(self.device)
             B = data.shape[0]
+            # if batch_idx == 5: break
 
             self.optimizer.zero_grad()
             with torch.set_grad_enabled(True):
@@ -499,6 +504,14 @@ class RACNN_Trainer():
                 loss = cls_loss
                 loss.backward()
                 self.optimizer.step()
+                loss_meter.update(loss.item(), 1)
+                
+                # calculate accuracy
+                train_acc_0 = compute_acc(out_0, target, self.trainloader.batch_size)
+                acc_meter.update(train_acc_0)
+
+        print("pretrain classification loss: ", loss_meter.avg)
+        print("pretrain classification acc: ", acc_meter.avg)
 
         return
 
@@ -520,76 +533,115 @@ class RACNN_Trainer():
         f_conv_0 = []
         def hook_feature_conv_scale_0(module, input, output):
             f_conv_0.clear()
-            f_conv_0.append(output.data.data.cpu().numpy())
+            f_conv_0.append(output.data.detach().cpu().numpy())
         ## place hooker
         h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
-        # print(len(f_conv_0))
+
+        apn_grad = []
+        def hook(grad):
+            print(grad)
+        
+        # def hook_apn_linear_grad(module, grad_in, grad_out):
+        #     print("grad_in: ", grad_in)
+        #     print("grad_out: ", grad_out)
+        # h_apn = self.model.apn_regress_01[3].register_backward_hook(hook_apn_linear_grad)
+
         for batch_idx, batch in tqdm.tqdm(
-            enumerate(self.pretrainloader), 
-            total=len(self.pretrainloader),
+            enumerate(self.trainloader), 
+            total=len(self.trainloader),
             desc='pretrain_apn'+': ', 
             ncols=80, 
             leave=False):
         # for batch_idx, batch in enumerate(self.trainloader):
+            
             data, target, idx = batch
-            img_path = self.testloader.dataset.get_fname(idx)
-            img = cv2.imread(img_path[0], -1) ## [H, W, C]
+            
             target = self.generate_confusion_target(target)
-
-            if batch_idx == 5: break
-
-
             data, target = data.to(self.device), target.to(self.device)
             B = data.shape[0]
 
             self.optimizer.zero_grad()
             with torch.set_grad_enabled(True):
                 # data [B, C, H, W]
-                out_0, out_1, t_01, _ = self.model(data, target=target.unsqueeze(1), train_config=1) ## [B, NumClasses]
+                out_0, out_1, t_01, _ = self.model(data, target.unsqueeze(1), 1) ## [B, NumClasses]
+                # print(t_01)
+                # t_01.register_hook(hook)
+
+                ### ---- original implementation for batchsize 1
                 ### get cropped region calculated by the APN
-                out_len = 256 * t_01[0][2]
-                out_center_x = (1 + t_01[0][0]) * 128
-                out_center_y = (1 + t_01[0][1]) * 128
-                ### get CAM peak
-                coordinate, heatmap = self.get_cam_peak(f_conv_0[-1], weight_softmax_0[target,:])
-                cam = heatmap * 0.3 + img * 0.5
-                cv2.rectangle(cam, (coordinate[1], coordinate[0]), (coordinate[3], coordinate[2]), (0, 255, 0), 2)#peak activation region
-                cv2.rectangle(cam, (out_center_x - out_len/2, out_center_x - out_len/2), (out_center_x + out_len/2, out_center_x + out_len/2), (0, 0, 255), 2) # cropped region by APN
+                # out_len = 256 * t_01[0][2]
+                # out_center_x = (1 + t_01[0][0]) * 128
+                # out_center_y = (1 + t_01[0][1]) * 128
+                # ### get CAM peak
+                # coordinate, heatmap = self.get_cam_peak(f_conv_0[-1], weight_softmax_0[target,:])
+                # cam = heatmap * 0.3 + img * 0.5
+                # cv2.rectangle(cam, (coordinate[1], coordinate[0]), (coordinate[3], coordinate[2]), (0, 255, 0), 2)#peak activation region
+                # cv2.rectangle(cam, (out_center_x - out_len/2, out_center_x - out_len/2), (out_center_x + out_len/2, out_center_x + out_len/2), (0, 0, 255), 2) # cropped region by APN
+                # center_x = (coordinate[1]+coordinate[3])/2
+                # cam_x = (center_x - 128)/128
+                # center_y = (coordinate[0]+coordinate[2])/2
+                # cam_y = (center_y - 128)/128
+                # cam_l = (coordinate[3]-coordinate[1]+coordinate[2]-coordinate[0])/(2*256)
+                ### ---- original implementation for batchsize 1
 
-                center_x = (coordinate[1]+coordinate[3])/2
-                cam_x = (center_x - 128)/128
-                center_y = (coordinate[0]+coordinate[2])/2
-                cam_y = (center_y - 128)/128
-                cam_l = (coordinate[3]-coordinate[1]+coordinate[2]-coordinate[0])/(2*256)
 
-                target_pos = torch.FloatTensor(np.array([cam_x, cam_y, cam_l]))
-
-                write_text_to_img(cam, f"target: {target}", org=(20,50), fontScale = 0.3)
-                write_text_to_img(cam, f"t_01: {t_01}", org=(20,65), fontScale = 0.3)
-                write_text_to_img(cam, f"target: {target_pos}", org=(20,80), fontScale = 0.3)
-                cv2.imwrite('/userhome/30/yfyang/CAM-pytorch/saved/debug/'+f'{int(time.time())}.jpg', cam)
+                out_len = 256 * t_01[:,2]
+                out_center_x = (1 + t_01[:,0]) * 128
+                out_center_y = (1 + t_01[:,1]) * 128
                 
-                loss = F.mse_loss(t_01[0], target_pos.cuda())
-                ##print(loss)
+                ### get CAM peak
+                ## coordinate is the pixel of the peak
+                coordinates, heatmaps = self.get_batch_cam_peak(f_conv_0[-1], weight_softmax_0[target.cpu(),:])
+                center_x = (coordinates[:,1]+coordinates[:,3])/2
+                gt_center_x = (center_x - 128)/128
+                center_y = (coordinates[:,0]+coordinates[:,2])/2
+                gt_center_y = (center_y - 128)/128
+                gt_len = (coordinates[:,3]-coordinates[:,1]+coordinates[:,2]-coordinates[:,0])/(2*256)
+                target_pos = torch.FloatTensor(np.stack([gt_center_x, gt_center_y, gt_len], axis=1)).to(self.device)
+
+                gt_center_x = 0.3
+                gt_center_y = 0.3
+                gt_len = 0.4
+                target_pos = torch.tensor([[gt_center_x, gt_center_y, gt_len]])
+                target_pos = target_pos.repeat([B, 1]).to(self.device)
+                loss = F.mse_loss(t_01, target_pos, reduction='none').sum()
+                print(loss)
                 loss.backward()
+
                 self.optimizer.step()
                 loss_meter.update(loss.item())
+
+                ## draw images
+                img_path = self.trainloader.dataset.get_fname(idx)
+                for i in range(B):
+                    img = cv2.imread(img_path[i], -1) ## [H, W, C]
+                    cam = heatmaps[i,:] * 0.3 + img * 0.5
+                    coordinate = coordinates[i,:]
+                    cv2.rectangle(
+                        cam, 
+                        (coordinate[1], coordinate[0]), 
+                        (coordinate[3], coordinate[2]), 
+                        (0, 255, 0), 2)#peak activation region
+                    cv2.rectangle(
+                        cam, 
+                        (out_center_x[i] - out_len[i]/2, out_center_y[i] - out_len[i]/2), 
+                        (out_center_x[i] + out_len[i]/2, out_center_y[i] + out_len[i]/2), 
+                        (0, 0, 255), 2) # cropped region by APN
+
+                    write_text_to_img(cam, f"gt_lbl: {target[i]}", org=(20,50), fontScale = 0.3)
+                    write_text_to_img(cam, f"t_01: {t_01[i,:]}", org=(20,65), fontScale = 0.3)
+                    write_text_to_img(cam, f"target: {target_pos[i,:]}", org=(20,80), fontScale = 0.3)
+
+                    path = os.path.join(self.result_folder, 'debug')
+                    if not os.path.exists(path):
+                        print("makepath: ", path)
+                        os.mkdir(path)
+                    fname = os.path.join(path, f'{int(time.time())}.jpg')
+                    cv2.imwrite(fname, cam)
+                
         print(loss_meter.avg)
         h0.remove()
         return 
-    
-    # generate class activation mapping for the top1 prediction
-    # def returnCAM(feature_conv, weight_softmax):
-    #     # generate the class activation maps upsample to 256x256
-    #     size_upsample = (256, 256)
-    #     bz, nc, h, w = feature_conv.shape
-    #     # print(weight_softmax.shape)
-    #     cam = weight_softmax.dot(feature_conv.reshape((nc, h*w)))
-    #     cam = cam.reshape(h, w)
-    #     cam = cam - np.min(cam)
-    #     cam_img = cam / np.max(cam)
-    #     cam_img = np.uint8(255 * cam_img)
-    #     return cam_img
     
     def get_cam_peak(self, feature, weight_softmax):
         # cam = returnCAM(feature.detach().cpu().numpy(), weight_softmax.detach().cpu().numpy())
@@ -599,6 +651,24 @@ class RACNN_Trainer():
         prop = generate_bbox(image, 0.8)
         heatmap = cv2.applyColorMap(image, cv2.COLORMAP_JET)
         return prop.bbox, heatmap
+
+    def get_batch_cam_peak(self, features, class_weights):
+        CAMs = returnTensorCAMs(features, class_weights)
+        # print(CAMs.shape)
+        heatmap_list=[]
+        prop_bbox_list=[]
+        for i in range(CAMs.shape[0]):
+            cam = CAMs[i].permute(1,2,0).numpy()
+            cam = cam - np.min(cam)
+            cam = cam / np.max(cam)
+            cam = np.uint8(255 * cam)
+            cam = cv2.resize(cam, (256, 256))
+            prop_bbox_list.append(generate_bbox(cam, 0.8).bbox)
+            heatmap_list.append(cv2.applyColorMap(cam, cv2.COLORMAP_JET))
+        prop_bboxs = np.stack(prop_bbox_list, axis=0)
+        heatmaps = np.stack(heatmap_list, axis=0)
+        return prop_bboxs, heatmaps
+        
     def generate_confusion_target(self, target):
         for confusion_idx in range(3, 6):
             target_cofusion = target==confusion_idx
