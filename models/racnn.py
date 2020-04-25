@@ -46,6 +46,10 @@ class RACNN(nn.Module):
     def __init__(self, num_classes, device, out_h=224, out_w=224):
         super(RACNN, self).__init__()
         
+        # shift the sigmoid output to ( [-0.5,0.5], [-0.5,0.5], [0.4,0.8] ) 
+        self.shift = torch.tensor([[0.5, 0.5, -1.0]]).to(device)
+        self.scale = torch.tensor([[1.0, 1.0, 0.4]]).to(device)
+
         self.num_classes = num_classes
         basemodel = models.resnet50(pretrained=True)
         # basemodel = models.resnet18(pretrained=True)
@@ -135,6 +139,10 @@ class RACNN(nn.Module):
             nn.Dropout(0.5),
             nn.Sigmoid() ## chosen
         ) 
+        self.apn_map_flatten_01 = nn.Sequential(
+            nn.Linear(14*14, 3, bias=True),
+            nn.Sigmoid()
+        )
 
         ## print the network architecture
         print(self)
@@ -151,19 +159,31 @@ class RACNN(nn.Module):
             f_conv = self.conv_scale_1(x)
             f_gap = self.gap(f_conv)
             return self.classifier_1(self.drop(f_gap).squeeze(2).squeeze(2)), f_gap, f_conv
+        elif lvl == 2:
+            x = self.base2(x)
+            f_conv = self.conv_scale_2(x)
+            f_gap = self.gap(f_conv)
+            return self.classifier_2(self.drop(f_gap).squeeze(2).squeeze(2)), f_gap, f_conv
         else:
             raise NotImplementedError
             
     def apn_map(self, xconv, lvl):
-        # x = self.drop(x)
-        # print(x.shape)
-        shift = torch.tensor([[0.5, 0.5, -1.0]]).to(xconv.device)
-        scale = torch.tensor([[1.0, 1.0, 0.4]]).to(xconv.device)
         if lvl == 0:
             t = self.apn_regress_01(self.apn_conv_01(xconv).flatten(start_dim=1))
-            # shift the sigmoid output to ( [-0.5,0.5], [-0.5,0.5], [0.4,0.8] ) 
-            t = (t-shift)*scale
-            #print(t[0,...])
+            t = (t-self.shift)*self.scale
+            return t
+        else:
+            raise NotImplementedError
+
+    def apn_map_chlwise(self, xconv, lvl):
+        if lvl == 0:
+            ## channelwise pooling 
+            B, C = xconv.shape[0:2]
+            xconv = xconv.view(B, C, -1)
+            xconv = xconv.permute(0,2,1)
+            xconv = F.adaptive_avg_pool1d(xconv, 1).squeeze(2)
+            t = self.apn_map_flatten_01(xconv.flatten(start_dim=1))
+            t = (t-self.shift)*self.scale
             return t
         else:
             raise NotImplementedError
@@ -191,20 +211,28 @@ class RACNN(nn.Module):
             self.unfreeze_network(self.classifier_0)
             self.unfreeze_network(self.classifier_1)
             self.unfreeze_network(self.classifier_2)
-            self.unfreeze_network(self.apn_conv_01)
-            self.unfreeze_network(self.apn_regress_01)
+            # self.unfreeze_network(self.apn_conv_01)
+            # self.unfreeze_network(self.apn_regress_01)
+            self.unfreeze_network(self.apn_map_flatten_01)
 
 
-        ## classification scale 1
+        ### Scale 0
         out_0, f_gap_0, f_conv0 = self.classification(x, lvl=0)
-        t0 = self.apn_map(f_conv0, lvl=0) ## [B, 3]
+        
+        ### Scale 1
+        # t0 = self.apn_map(f_conv0, lvl=0) ## [B, 3]
+        t0 = self.apn_map_chlwise(f_conv0, lvl=0) ## [B, 3]
         grid = self.grid_sampler(t0) ## [B, H, W, 2]
         x1 = F.grid_sample(x, grid, align_corners=False, padding_mode='border') ## [B, 3, H, W] sampled using grid parameters
-
-        ## classification scale 2
         out_1, f_gap_1, f_conv1 = self.classification(x1, lvl=1)
 
-        return out_0, out_1, t0, f_gap_1
+        ### Scale 2
+        t1 = self.apn_map_chlwise(f_conv1, lvl=0) ## [B, 3]
+        grid = self.grid_sampler(t1) ## [B, H, W, 2]
+        x2 = F.grid_sample(x1, grid, align_corners=False, padding_mode='border') ## [B, 3, H, W] sampled using grid parameters
+        out_2, f_gap_2, f_conv2 = self.classification(x2, lvl=2)
+
+        return [out_0, out_1, out_2], [t0, t1]
 
     def freeze_network(self, module):
         for p in module.parameters():

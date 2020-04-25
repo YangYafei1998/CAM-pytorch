@@ -96,7 +96,8 @@ def main(config):
     else:
         raise NotImplementedError
 
-    trainer.pretrain()
+    if config.get('pretrain', False):
+        trainer.pretrain()
     trainer.train(EPOCH, do_validation=True)
 
 
@@ -115,7 +116,7 @@ if __name__ == '__main__':
                         help='Network architecture')
     parser.add_argument('--augmentation', action='store_true')
     parser.add_argument('--temporal', action='store_true')
-    
+    parser.add_argument('--pretrain', action='store_true')
 
     parser.add_argument('-wd', '--weight_decay', default=None, type=float,
                         help='the size of each minibatch')
@@ -154,7 +155,8 @@ if __name__ == '__main__':
         config.set_content('augmentation', args.augmentation)
     if args.temporal:
         config.set_content('temporal', args.temporal)
-
+    if args.pretrain:
+        config.set_content('pretrain', args.pretrain)
     ## hyperparameters
     if args.weight_decay is not None:
         config.set_content('weight_decay', args.weight_decay)

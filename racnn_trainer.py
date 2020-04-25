@@ -51,6 +51,12 @@ def theta2coordinate(theta, x, y, x_len, y_len):
 
     return x, y, x_len, y_len
 
+def ListDatatoCPU(list_data):
+    assert isinstance(list_data, list)
+    cpu_list_data = []
+    for d in list_data:
+        cpu_list_data.append(d.cpu())
+    return cpu_list_data
 
 def compute_acc(out, target, batch_size):
     correct = (torch.max(out, dim=1)[1].view(target.size()).data == target.data).sum()
@@ -189,11 +195,12 @@ class RACNN_Trainer():
 
     ## pre-train session
     def pretrain(self):
-        # for i in range(0, 5):
-        #     self.pretrain_classification()
-        #     self._save_checkpoint(i, pretrain_ckp=True)
-        for _ in range(6):
+        for _ in range(5):
+            self.pretrain_classification()
+        self._save_checkpoint(0, pretrain_ckp=True)
+        for _ in range(3):
             self.pretrain_apn()
+        self._save_checkpoint(1, pretrain_ckp=True)
         print("Pre-train Finished")
 
 
@@ -212,13 +219,12 @@ class RACNN_Trainer():
             self.logger.info(f"Classification\n")
             log = self.train_one_epoch(epoch, 0)
             self.logger.info(log)
-            # self.pretrain()
-
 
             if epoch != 0 and epoch % self.interleaving_step == 0:
                 self.logger.info(f"APN\n")
                 log = self.train_one_epoch(epoch, 1)
                 self.logger.info(log)
+                self._save_checkpoint(epoch)
 
             # if epoch % 7 == 5 or epoch % 7 == 6:
             #     self.logger.info(f"APN")
@@ -254,6 +260,7 @@ class RACNN_Trainer():
         temp_loss_meter = AverageMeter()
         accuracy_0 = AverageMeter()
         accuracy_1 = AverageMeter()
+        accuracy_2 = AverageMeter()
 
         for batch_idx, batch in tqdm.tqdm(
             enumerate(self.trainloader), 
@@ -284,43 +291,41 @@ class RACNN_Trainer():
                     data = data.view(B*3, 3, H, W)
                     target = target.view(B*3)
 
-                out_0, out_1, t_01, f_gap_1 = self.model(data, target.unsqueeze(1), loss_config) ## [B, NumClasses]
-                # print("theta: ", t_01)
-                
-                # ### infoNCE loss
-                # info_loss = self.criterion.ContrastiveLoss(f_gap_1)
+                out_list, t_list = self.model(data, target.unsqueeze(1), loss_config) ## [B, NumClasses]
+                out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
+                t_01, t_12 = t_list[0], t_list[1]
+
 
                 ### Classification loss
                 cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
                 cls_loss_1, preds_1 = self.criterion.ImgLvlClassLoss(out_1, target, reduction='none')
-                cls_loss = cls_loss_0.sum() + cls_loss_1.sum()
+                cls_loss_2, preds_2 = self.criterion.ImgLvlClassLoss(out_2, target, reduction='none')
+                cls_loss = cls_loss_0.sum() + cls_loss_1.sum() + cls_loss_2.sum()
                 
                 ### Ranking loss
                 B_out = out_0.shape[0] ## if temporal_coherence, B_out = B*3
                 probs_0 = F.softmax(out_0, dim=-1)
                 probs_1 = F.softmax(out_1, dim=-1)
+                probs_2 = F.softmax(out_1, dim=-1)
                 gt_probs_0 = probs_0[list(range(B_out)), target]
                 gt_probs_1 = probs_1[list(range(B_out)), target]
-                rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
-                rank_loss = rank_loss.sum()
+                gt_probs_2 = probs_1[list(range(B_out)), target]
+                rank_loss_1 = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
+                rank_loss_2 = self.criterion.PairwiseRankingLoss(gt_probs_1, gt_probs_2, margin=self.margin)
+                rank_loss = rank_loss_1.sum() + rank_loss_2.sum()
 
                 ### Temporal coherence
                 if self.time_consistency:
                     temp_loss = 0.0
-                    conf_0 = self.criterion.ComputeEntropyAsWeight(out_0).view(B, 3)
-                    conf_1 = self.criterion.ComputeEntropyAsWeight(out_1).view(B, 3)
+                    # conf_0 = self.criterion.ComputeEntropyAsWeight(out_0).view(B, 3)
+                    # conf_1 = self.criterion.ComputeEntropyAsWeight(out_1).view(B, 3)
                     ## [0::3] staring from 0, get every another three elements
                     temp_loss_0 = self.criterion.TemporalConsistencyLoss(out_0[0::3], out_0[1::3], out_0[2::3], reduction='none')
                     temp_loss_1 = self.criterion.TemporalConsistencyLoss(out_1[0::3], out_1[1::3], out_1[2::3], reduction='none')
+                    temp_loss_2 = self.criterion.TemporalConsistencyLoss(out_2[0::3], out_2[1::3], out_2[2::3], reduction='none')
                     # temp_loss += (temp_loss_0*(conf_0**2) + (1-conf_0)**2).sum()
                     # temp_loss += (temp_loss_1*(conf_1**2) + (1-conf_1)**2).sum()
-                    temp_loss = temp_loss_0.sum() + temp_loss_1.sum()
-
-                # print("gt_probs_0: ", gt_probs_0)
-                # print("gt_probs_1: ", gt_probs_1)
-                # print("rank_loss: ", rank_loss)
-                # print("info_loss: ", info_loss)
-                # print("cls_loss: ", cls_loss)
+                    temp_loss = temp_loss_0.sum() + temp_loss_1.sum() + temp_loss_2.sum()
 
                 loss = 0.0
                 if loss_config == 0: ##'classification'
@@ -336,24 +341,22 @@ class RACNN_Trainer():
                 loss.backward()
                 self.optimizer.step()
 
-                # calculate accuracy
-                # print(out_0.shape)
-                # print(target.shape)
-                train_acc_0 = compute_acc(out_0, target, B_out)
-                train_acc_1 = compute_acc(out_1, target, B_out)
-                
+                ## meter update
                 loss_meter.update(loss, 1)
                 cls_loss_meter.update(cls_loss, 1)
                 rank_loss_meter.update(rank_loss, 1)
                 if self.time_consistency:
                     temp_loss_meter.update(temp_loss, 1)
                 # info_loss_meter.update(info_loss, 1)
-                accuracy_0.update(train_acc_0, 1)
-                accuracy_1.update(train_acc_1, 1)
+                # calculate accuracy
+                accuracy_0.update(compute_acc(out_0, target, B_out), 1)
+                accuracy_1.update(compute_acc(out_1, target, B_out), 1)
+                accuracy_2.update(compute_acc(out_2, target, B_out), 1)
 
 
         return {
-            'cls_loss': cls_loss_meter.avg, 'cls_acc_0': accuracy_0.avg, 'cls_acc_1': accuracy_1.avg, 
+            'cls_loss': cls_loss_meter.avg, 
+            'cls_acc_0': accuracy_0.avg, 'cls_acc_1': accuracy_1.avg, 'cls_acc_2': accuracy_2.avg, 
             'rank_loss': rank_loss_meter.avg, 
             'temp_loss': temp_loss_meter.avg,
             # 'info_loss': info_loss_meter.avg,
@@ -368,30 +371,37 @@ class RACNN_Trainer():
         rank_loss_meter = AverageMeter()
         accuracy_0 = AverageMeter()
         accuracy_1 = AverageMeter()
+        accuracy_2 = AverageMeter()
+
 
         with torch.no_grad():
             # if self.draw_cams:
             if self.draw_cams and epoch % self.save_period == 0:
-                self._save_checkpoint(epoch)
+                # self._save_checkpoint(epoch)
                 ## weight
                 params_classifier_0 = list(self.model.classifier_0.parameters())
                 params_classifier_1 = list(self.model.classifier_1.parameters())
+                params_classifier_2 = list(self.model.classifier_2.parameters())
                 ## -2 because we have bias in the classifier
                 weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
-                # weight_softmax_1 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
                 weight_softmax_1 = np.squeeze(params_classifier_1[-2].data.cpu().numpy())
-                
+                weight_softmax_2 = np.squeeze(params_classifier_2[-2].data.cpu().numpy())
+
                 # hook the feature extractor instantaneously and remove it once data is hooked
-                f_conv_0, f_conv_1 = [], []
+                f_conv_0, f_conv_1, f_conv_2 = [], [], []
                 def hook_feature_conv_scale_0(module, input, output):
                     f_conv_0.clear()
                     f_conv_0.append(output.data.cpu().numpy())
                 def hook_feature_conv_scale_1(module, input, output):
                     f_conv_1.clear()
                     f_conv_1.append(output.data.cpu().numpy())
+                def hook_feature_conv_scale_2(module, input, output):
+                    f_conv_2.clear()
+                    f_conv_2.append(output.data.cpu().numpy())
                 ## place hooker
                 h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
                 h1 = self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
+                h2 = self.model.conv_scale_2[-2].register_forward_hook(hook_feature_conv_scale_2)
                 print("saving CAMs")
 
             
@@ -405,46 +415,63 @@ class RACNN_Trainer():
                 data, target, idx = batch
                 data, target = data.to(self.device), target.to(self.device)
                 B = data.shape[0]
+                H, W = data.shape[-2:]
                 assert B == 1, "test batch size should be 1"
 
                 # data [B, C, H, W]
-                out_0, out_1, t_01, _ = self.model(data,target=None) ## [B, NumClasses]
-                print(f"{batch_idx}: GT: {target} // theta: {t_01}")
+                out_list, t_list = self.model(data,target=None) ## [B, NumClasses]
+                out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
+                t_01, t_12 = t_list[0], t_list[1]
+
+                print(f"{batch_idx}: GT: {target.item()} // theta: {t_01} // theta: {t_12}")
                 ### Classification loss
                 cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
                 cls_loss_1, preds_1 = self.criterion.ImgLvlClassLoss(out_1, target, reduction='none')
-                cls_loss = cls_loss_0.sum() + cls_loss_1.sum()
+                cls_loss_2, preds_2 = self.criterion.ImgLvlClassLoss(out_2, target, reduction='none')
+                cls_loss = cls_loss_0.sum() + cls_loss_1.sum() + cls_loss_2.sum()
 
                 ### Ranking loss
                 probs_0 = F.softmax(out_0, dim=-1)
                 probs_1 = F.softmax(out_1, dim=-1)
+                probs_2 = F.softmax(out_2, dim=-1)
                 gt_probs_0 = probs_0[list(range(B)), target]
                 gt_probs_1 = probs_1[list(range(B)), target]
-                rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
-                rank_loss = rank_loss.sum()
+                gt_probs_2 = probs_2[list(range(B)), target]
+                rank_loss_1 = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
+                rank_loss_2 = self.criterion.PairwiseRankingLoss(gt_probs_1, gt_probs_2, margin=self.margin)
+                rank_loss = rank_loss_1.sum() + rank_loss_2.sum()
 
-                # calculate accuracy
-                train_acc_0 = compute_acc(out_0, target, self.testloader.batch_size)
-                train_acc_1 = compute_acc(out_1, target, self.testloader.batch_size)
-                
+                ##
                 cls_loss_meter.update(cls_loss, 1)
                 rank_loss_meter.update(rank_loss, 1)
-                accuracy_0.update(train_acc_0, 1)
-                accuracy_1.update(train_acc_1, 1)
+                # calculate accuracy
+                accuracy_0.update(compute_acc(out_0, target, self.testloader.batch_size), 1)
+                accuracy_1.update(compute_acc(out_1, target, self.testloader.batch_size), 1)
+                accuracy_2.update(compute_acc(out_2, target, self.testloader.batch_size), 1)
+
                 # if self.draw_cams:
                 if self.draw_cams and epoch % self.save_period == 0:
                     img_path = self.testloader.dataset.get_fname(idx)
                     # print(img_path)
                     weight_softmax_0_gt = weight_softmax_0[target, :]
                     weight_softmax_1_gt = weight_softmax_1[target, :]
+                    weight_softmax_2_gt = weight_softmax_2[target, :]
+
                     self.drawer.draw_single_cam(
                         epoch, target, img_path[0], 
                         gt_probs_0, weight_softmax_0_gt, f_conv_0[-1], 
-                        sub_folder='scale_0')
+                        theta=None, sub_folder='scale_0')
+
                     self.drawer.draw_single_cam(
                         epoch, target, img_path[0], 
                         gt_probs_1, weight_softmax_1_gt, f_conv_1[-1], 
-                        theta=t_01.cpu(), sub_folder='scale_1')
+                        lvl = 1, theta=ListDatatoCPU(t_list[0:1]), sub_folder='scale_1')
+                    
+                    self.drawer.draw_single_cam(
+                        epoch, target, img_path[0], 
+                        gt_probs_2, weight_softmax_2_gt, f_conv_2[-1], 
+                        lvl = 2, theta=ListDatatoCPU(t_list[0:2]), sub_folder='scale_2')
+
                     # input()
             # if self.draw_cams:
             if self.draw_cams and epoch % self.save_period == 0:
@@ -462,13 +489,22 @@ class RACNN_Trainer():
                 write_video_from_images(cam_path_scale_1, videoname_1)
                 shutil.rmtree(cam_path_scale_1)
 
+                cam_path_scale_2 = os.path.join(self.result_folder, 'scale_2', f"epoch{epoch}")
+                videoname_2 = f'video_epoch{epoch}_{timestamp}_scale2.avi'
+                videoname_2 = os.path.join(self.result_folder, videoname_2)
+                write_video_from_images(cam_path_scale_2, videoname_2)
+                shutil.rmtree(cam_path_scale_2)
+
                 h0.remove()
                 h1.remove()
+                h2.remove()
 
 
         return {
             'cls_loss': cls_loss_meter.avg, 
-            'cls_acc_0': accuracy_0.avg, 'cls_acc_1': accuracy_1.avg, 
+            'cls_acc_0': accuracy_0.avg, 
+            'cls_acc_1': accuracy_1.avg, 
+            'cls_acc_2': accuracy_2.avg, 
             'rank_loss': rank_loss_meter.avg,
         }
 
@@ -501,8 +537,15 @@ class RACNN_Trainer():
                     data = data.view(B*3, 3, H, W)
                     target = target.view(B*3)
                 # data [B, C, H, W]
-                out_0, out_1, t_01, _ = self.model(data, target=target.unsqueeze(1)) ## [B, NumClasses]
+                if self.time_consistency:
+                    
+                    data = data.view(B*3, 3, H, W)
+                    target = target.view(B*3)
 
+                out_list, t_list = self.model(data, target=target.unsqueeze(1)) ## [B, NumClasses]
+                out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
+                t_01, t_12 = t_list[0], t_list[1]
+                
                 ### Classification loss
                 cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
                 cls_loss = cls_loss_0.sum()
@@ -566,15 +609,25 @@ class RACNN_Trainer():
             data, target = data.to(self.device), target.to(self.device)
             B = data.shape[0]
             H, W = data.shape[-2:]
+<<<<<<< HEAD
+=======
+
+>>>>>>> yanglei
             self.optimizer.zero_grad()
             with torch.set_grad_enabled(True):
                 if self.time_consistency:
                     data = data.view(B*3, 3, H, W)
                     target = target.view(B*3)
                 # data [B, C, H, W]
+                
+                if self.time_consistency:
+                    data = data.view(B*3, 3, H, W)
+                    target = target.view(B*3)
+                
                 out_0, out_1, t_01, _ = self.model(data, target.unsqueeze(1), 1) ## [B, NumClasses]
-                # print(t_01)
-                # t_01.register_hook(hook)
+                out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
+                t_01, t_12 = t_list[0], t_list[1]
+
 
                 ### ---- original implementation for batchsize 1
                 ### get cropped region calculated by the APN
@@ -592,7 +645,6 @@ class RACNN_Trainer():
                 # cam_y = (center_y - 128)/128
                 # cam_l = (coordinate[3]-coordinate[1]+coordinate[2]-coordinate[0])/(2*256)
                 ### ---- original implementation for batchsize 1
-
 
                 out_len = 256 * t_01[:,2]
                 out_center_x = (1 + t_01[:,0]) * 128
@@ -612,12 +664,10 @@ class RACNN_Trainer():
                 # gt_center_y = 0.3
                 # gt_len = 0.4
                 # target_pos = torch.tensor([[gt_center_x, gt_center_y, gt_len]])
-                # target_pos = target_pos.repeat([B*3, 1]).to(self.device)
-                # print(t_01)
-                # print(target_pos)
-                # print(B)
+                # target_pos = target_pos.repeat([B, 1]).to(self.device)
+
                 loss = F.mse_loss(t_01, target_pos, reduction='none').sum()
-                print(loss)
+                # print(loss)
                 loss.backward()
 
                 self.optimizer.step()
