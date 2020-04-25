@@ -117,6 +117,8 @@ if __name__ == '__main__':
     parser.add_argument('--augmentation', action='store_true')
     parser.add_argument('--temporal', action='store_true')
     parser.add_argument('--pretrain', action='store_true')
+    parser.add_argument('--mini_train', action='store_true')
+
 
     parser.add_argument('-wd', '--weight_decay', default=None, type=float,
                         help='the size of each minibatch')
@@ -157,6 +159,9 @@ if __name__ == '__main__':
         config.set_content('temporal', args.temporal)
     if args.pretrain:
         config.set_content('pretrain', args.pretrain)
+    if args.mini_train:
+        config.set_content('mini_train', args.mini_train)
+
     ## hyperparameters
     if args.weight_decay is not None:
         config.set_content('weight_decay', args.weight_decay)
