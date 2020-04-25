@@ -9,7 +9,7 @@ from utils.cam_drawer import CAMDrawer, largest_component, generate_bbox, return
 import torch
 import torch.nn.functional as F
 
-
+from utils.augmentation import DataAugmentation
 from utils.logger import AverageMeter
 from make_video import *
 
@@ -92,9 +92,9 @@ class RACNN_Trainer():
         self.interleaving_step = config['interleave']
         self.margin = config['margin']
         self.max_epoch = config['max_epoch']
-        self.time_consistency = config.get('temporal', False) ## default is fault
+        self.time_consistency = config.get('temporal', False) ## default is false
         if self.time_consistency:
-            self.consistency_weight = config['temp_consistency_weight']
+            self.tc_weight = config['temp_consistency_weight']
 
         self.save_period = config['ckpt_save_period']
         batch_size = config['batch_size']
@@ -107,6 +107,8 @@ class RACNN_Trainer():
             self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4) 
             self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
             self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4) 
+
+        self.augmenter = DataAugmentation()
 
 
 
@@ -191,8 +193,8 @@ class RACNN_Trainer():
     def train(self, max_epoch, do_validation=True):
         if max_epoch is not None:
             self.max_epoch = max_epoch
-        
-        self.pretrain()
+
+        self.test_one_epoch(0)
 
         for epoch in range(max_epoch):
             ## training
@@ -241,6 +243,7 @@ class RACNN_Trainer():
         cls_loss_meter = AverageMeter()
         rank_loss_meter = AverageMeter()
         info_loss_meter = AverageMeter()
+        temp_loss_meter = AverageMeter()
         accuracy_0 = AverageMeter()
         accuracy_1 = AverageMeter()
 
@@ -253,9 +256,15 @@ class RACNN_Trainer():
         # for batch_idx, batch in enumerate(self.trainloader):
             data, target, idx = batch
             target = self.generate_confusion_target(target)
+
+            ## data augmentation via imgaug
+            if self.trainloader.dataset.augmentation:
+                data = self.augmenter(data)
+                # print(data)
             
+            ## 
             data, target = data.to(self.device), target.to(self.device)
-            
+
             B = data.shape[0]
             H, W = data.shape[-2:] # [-2:]==[-2,-1]; [-2:-1] == [-2]
 
@@ -266,8 +275,7 @@ class RACNN_Trainer():
                     data = data.view(B*3, 3, H, W)
                     target = target.view(B*3)
 
-                out_0, out_1, t_01, f_gap_1 = self.model(data, target.unsqueeze(1)) ## [B, NumClasses]
-                
+                out_0, out_1, t_01, f_gap_1 = self.model(data, target.unsqueeze(1), loss_config) ## [B, NumClasses]
                 # print("theta: ", t_01)
                 
                 # ### infoNCE loss
@@ -279,24 +287,25 @@ class RACNN_Trainer():
                 cls_loss = cls_loss_0.sum() + cls_loss_1.sum()
                 
                 ### Ranking loss
-                # B3 = out_0.shape[0]
+                B_out = out_0.shape[0] ## if temporal_coherence, B_out = B*3
                 probs_0 = F.softmax(out_0, dim=-1)
                 probs_1 = F.softmax(out_1, dim=-1)
-                gt_probs_0 = probs_0[list(range(B)), target]
-                gt_probs_1 = probs_1[list(range(B)), target]
+                gt_probs_0 = probs_0[list(range(B_out)), target]
+                gt_probs_1 = probs_1[list(range(B_out)), target]
                 rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
                 rank_loss = rank_loss.sum()
 
-                # ### Temporal coherence
-                # if self.time_consistency:
-                #     temp_loss = 0.0
-                #     out_0 = out_0.view(B, 3, 3)
-                #     out_1 = out_1.view(B, 3, 3)
-                #     target = target.view(B, 3)
-                #     # t_01 = t_01.view(B, 3)
-                #     # f_gap_1 = f_gap_1.view(B, 3)
-                #     temp_loss += self.criterion.TemporalConsistencyLoss(out_0[0], out_0[1], out_0[2])
-                #     temp_loss += self.criterion.TemporalConsistencyLoss(out_1[0], out_1[1], out_1[2])
+                ### Temporal coherence
+                if self.time_consistency:
+                    temp_loss = 0.0
+                    conf_0 = self.criterion.ComputeEntropyAsWeight(out_0).view(B, 3)
+                    conf_1 = self.criterion.ComputeEntropyAsWeight(out_1).view(B, 3)
+                    ## [0::3] staring from 0, get every another three elements
+                    temp_loss_0 = self.criterion.TemporalConsistencyLoss(out_0[0::3], out_0[1::3], out_0[2::3], reduction='none')
+                    temp_loss_1 = self.criterion.TemporalConsistencyLoss(out_1[0::3], out_1[1::3], out_1[2::3], reduction='none')
+                    # temp_loss += (temp_loss_0*(conf_0**2) + (1-conf_0)**2).sum()
+                    # temp_loss += (temp_loss_1*(conf_1**2) + (1-conf_1)**2).sum()
+                    temp_loss = temp_loss_0.sum() + temp_loss_1.sum()
 
                 # print("gt_probs_0: ", gt_probs_0)
                 # print("gt_probs_1: ", gt_probs_1)
@@ -304,14 +313,16 @@ class RACNN_Trainer():
                 # print("info_loss: ", info_loss)
                 # print("cls_loss: ", cls_loss)
 
+                loss = 0.0
                 if loss_config == 0: ##'classification'
-                    loss = cls_loss
+                    loss += cls_loss
                 elif loss_config == 1: ##'apn'
-                    loss = rank_loss
+                    loss += rank_loss
                 else: ##'whole'
-                    loss = rank_loss + cls_loss + info_loss
-                    if self.time_consistency:
-                        loss += 0.1*temp_loss
+                    loss += (rank_loss + cls_loss + info_loss)
+                
+                if self.time_consistency:
+                    loss += self.tc_weight*temp_loss
 
                 loss.backward()
                 self.optimizer.step()
@@ -320,13 +331,15 @@ class RACNN_Trainer():
                 # print(out_0.shape)
                 # print(target.shape)
                 correct_0 = (torch.max(out_0, dim=1)[1].view(target.size()).data == target.data).sum()
-                train_acc_0 = 100. * correct_0 / self.trainloader.batch_size
+                train_acc_0 = 100. * correct_0 / B_out
                 correct_1 = (torch.max(out_1, 1)[1].view(target.size()).data == target.data).sum()
-                train_acc_1 = 100. * correct_1 / self.trainloader.batch_size
+                train_acc_1 = 100. * correct_1 / B_out
                 
                 loss_meter.update(loss, 1)
                 cls_loss_meter.update(cls_loss, 1)
                 rank_loss_meter.update(rank_loss, 1)
+                if self.time_consistency:
+                    temp_loss_meter.update(temp_loss, 1)
                 # info_loss_meter.update(info_loss, 1)
                 accuracy_0.update(train_acc_0, 1)
                 accuracy_1.update(train_acc_1, 1)
@@ -335,6 +348,7 @@ class RACNN_Trainer():
         return {
             'cls_loss': cls_loss_meter.avg, 'cls_acc_0': accuracy_0.avg, 'cls_acc_1': accuracy_1.avg, 
             'rank_loss': rank_loss_meter.avg, 
+            'temp_loss': temp_loss_meter.avg,
             # 'info_loss': info_loss_meter.avg,
             'total_loss': loss_meter.avg
             }
@@ -370,7 +384,6 @@ class RACNN_Trainer():
                     f_conv_1.append(output.data.cpu().numpy())
                 ## place hooker
                 h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
-                # h1 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_1)
                 h1 = self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
                 print("saving CAMs")
 
@@ -382,11 +395,10 @@ class RACNN_Trainer():
             #    ncols=80, 
             #    leave=False):
             for batch_idx, batch in enumerate(self.testloader):
-                data, target, idx, locationGT = batch
+                data, target, idx = batch
                 data, target = data.to(self.device), target.to(self.device)
                 B = data.shape[0]
                 assert B == 1, "test batch size should be 1"
-
 
                 # data [B, C, H, W]
                 out_0, out_1, t_01, _ = self.model(data,target=None) ## [B, NumClasses]
@@ -420,14 +432,14 @@ class RACNN_Trainer():
                     # print(img_path)
                     weight_softmax_0_gt = weight_softmax_0[target, :]
                     weight_softmax_1_gt = weight_softmax_1[target, :]
-                    self.drawer.draw_cam(
-                        epoch, gt_probs_0, target, 
-                        weight_softmax_0_gt, f_conv_0[-1], 
-                        img_path[0], GT = locationGT[0], sub_folder='scale_0')
-                    self.drawer.draw_cam(
-                        epoch, gt_probs_1, target, 
-                        weight_softmax_1_gt, f_conv_1[-1], 
-                        img_path[0], GT = locationGT[0], theta=t_01.cpu(), sub_folder='scale_1')
+                    self.drawer.draw_single_cam(
+                        epoch, target, img_path[0], 
+                        gt_probs_0, weight_softmax_0_gt, f_conv_0[-1], 
+                        sub_folder='scale_0')
+                    self.drawer.draw_single_cam(
+                        epoch, target, img_path[0], 
+                        gt_probs_1, weight_softmax_1_gt, f_conv_1[-1], 
+                        theta=t_01.cpu(), sub_folder='scale_1')
                     # input()
             # if self.draw_cams:
             if self.draw_cams and epoch % self.save_period == 0:
@@ -457,7 +469,7 @@ class RACNN_Trainer():
 
     ##
     def pretrain_classification(self, max_epoch=5):
-        print("pretran Classification")
+        print("pretrain Classification")
 
         self.model.train()
         for batch_idx, batch in tqdm.tqdm(
@@ -469,6 +481,8 @@ class RACNN_Trainer():
         # for batch_idx, batch in enumerate(self.trainloader):
             data, target, idx = batch
             target = self.generate_confusion_target(target)
+            
+            if batch_idx == 5: break
 
             data, target = data.to(self.device), target.to(self.device)
             B = data.shape[0]
@@ -517,10 +531,13 @@ class RACNN_Trainer():
             ncols=80, 
             leave=False):
         # for batch_idx, batch in enumerate(self.trainloader):
-            data, target, idx, _ = batch
+            data, target, idx = batch
             img_path = self.testloader.dataset.get_fname(idx)
             img = cv2.imread(img_path[0], -1) ## [H, W, C]
             target = self.generate_confusion_target(target)
+
+            if batch_idx == 5: break
+
 
             data, target = data.to(self.device), target.to(self.device)
             B = data.shape[0]

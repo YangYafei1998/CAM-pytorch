@@ -27,13 +27,13 @@ class TCLoss(nn.Module):
     #     cls_loss = ClassficationLoss(inputs, targets)
     #     return cls_loss + 0.1*temp_loss
         
-    def TemporalConsistencyLoss(self, inputs, inputs_prev, inputs_next):
-        t_loss_prev = nn.functional.mse_loss(inputs, inputs_prev)
-        t_loss_next = nn.functional.mse_loss(inputs, inputs_next)
+    def TemporalConsistencyLoss(self, inputs, inputs_prev, inputs_next, reduction='mean'):
+        t_loss_prev = nn.functional.mse_loss(inputs, inputs_prev, reduction=reduction)
+        t_loss_next = nn.functional.mse_loss(inputs, inputs_next, reduction=reduction)
         #print('t_loss_prev: {}, t_loss_next: {}'.format(t_loss_prev, t_loss_next))
         return t_loss_prev + t_loss_next
     
-    def ImgLvlClassLoss(self, inputs, targets,reduction='mean'):
+    def ImgLvlClassLoss(self, inputs, targets, reduction='mean'):
         # 
         cls_loss = nn.functional.cross_entropy(inputs, targets, reduction=reduction)
         _, preds = torch.max(inputs, 1)
