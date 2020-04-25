@@ -421,6 +421,7 @@ class RACNN_Trainer():
                 out_list, t_list = self.model(data,target=None) ## [B, NumClasses]
                 out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
                 t_01, t_12 = t_list[0], t_list[1]
+                B_out = out_0.shape[0] ## if temporal_coherence, B_out = B*3
 
                 print(f"{batch_idx}: GT: {target.item()} // theta: {t_01} // theta: {t_12}")
                 ### Classification loss
@@ -444,9 +445,9 @@ class RACNN_Trainer():
                 cls_loss_meter.update(cls_loss, 1)
                 rank_loss_meter.update(rank_loss, 1)
                 # calculate accuracy
-                accuracy_0.update(compute_acc(out_0, target, self.testloader.batch_size), 1)
-                accuracy_1.update(compute_acc(out_1, target, self.testloader.batch_size), 1)
-                accuracy_2.update(compute_acc(out_2, target, self.testloader.batch_size), 1)
+                accuracy_0.update(compute_acc(out_0, target, B_out), 1)
+                accuracy_1.update(compute_acc(out_1, target, B_out), 1)
+                accuracy_2.update(compute_acc(out_2, target, B_out), 1)
 
                 # if self.draw_cams:
                 if self.draw_cams and epoch % self.save_period == 0:
@@ -540,6 +541,7 @@ class RACNN_Trainer():
                 out_list, t_list = self.model(data, target=target.unsqueeze(1)) ## [B, NumClasses]
                 out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
                 t_01, t_12 = t_list[0], t_list[1]
+                B_out = out_0.shape[0]
                 
                 ### Classification loss
                 cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
@@ -551,7 +553,7 @@ class RACNN_Trainer():
                 loss_meter.update(loss.item(), 1)
                 
                 # calculate accuracy
-                train_acc_0 = compute_acc(out_0, target, self.trainloader.batch_size)
+                train_acc_0 = compute_acc(out_0, target, B_out)
                 acc_meter.update(train_acc_0)
 
         print("pretrain classification loss: ", loss_meter.avg)
@@ -613,10 +615,10 @@ class RACNN_Trainer():
                     data = data.view(B*3, 3, H, W)
                     target = target.view(B*3)
                 
-                out_0, out_1, t_01, _ = self.model(data, target.unsqueeze(1), 1) ## [B, NumClasses]
+                out_list, t_list = self.model(data, target.unsqueeze(1), 1) ## [B, NumClasses]
                 out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
                 t_01, t_12 = t_list[0], t_list[1]
-
+                B_out = out_0.shape[0]
 
                 ### ---- original implementation for batchsize 1
                 ### get cropped region calculated by the APN
