@@ -105,7 +105,7 @@ class RACNN_Trainer():
             self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
         else:
             self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4) 
-            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4) 
+            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
             self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4) 
 
 
@@ -179,9 +179,9 @@ class RACNN_Trainer():
 
     ## pre-train session
     def pretrain(self):
-        # for i in range(0, 5):
-        #     self.pretrain_classification()
-        #     self._save_checkpoint(i, pretrain_ckp=True)
+        for i in range(0, 5):
+            self.pretrain_classification()
+            self._save_checkpoint(i, pretrain_ckp=True)
         for _ in range(6):
             self.pretrain_apn()
         print("Pre-train Finished")
@@ -558,6 +558,7 @@ class RACNN_Trainer():
                 self.optimizer.step()
                 loss_meter.update(loss.item())
         print(loss_meter.avg)
+        h0.remove()
         return 
     
     # generate class activation mapping for the top1 prediction

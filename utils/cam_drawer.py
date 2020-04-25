@@ -201,16 +201,6 @@ class CAMDrawer():
                     y = int((y - new_upper_left_y)/theta[0][2])
                     y_len = int(y_len/theta[0][2])
                     
-                # x = int(max((x - new_upper_left_x).item(), 0)/theta[0][2])
-                # y = int(max((y - new_upper_left_y).item(), 0)/theta[0][2])
-                # x_len = int(x_len/theta[0][2])
-                # y_len = int(y_len/theta[0][2])
-                # print('------DEBUG------')
-                # print(x)
-                # print(y)
-                # print(x_len)
-                # print(y_len)
-                # print(new_center_x)
                 # print(new_center_y)
                 gt_image[y:y+y_len, x:x+x_len] = 1
 
