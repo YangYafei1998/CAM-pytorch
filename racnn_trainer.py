@@ -189,11 +189,12 @@ class RACNN_Trainer():
 
     ## pre-train session
     def pretrain(self):
-        for i in range(5):
+        for _ in range(5):
             self.pretrain_classification()
-            # self._save_checkpoint(i, pretrain_ckp=True)
+        self._save_checkpoint(0, pretrain_ckp=True)
         for _ in range(3):
             self.pretrain_apn()
+        self._save_checkpoint(1, pretrain_ckp=True)
         print("Pre-train Finished")
 
 
@@ -219,6 +220,7 @@ class RACNN_Trainer():
                 self.logger.info(f"APN\n")
                 log = self.train_one_epoch(epoch, 1)
                 self.logger.info(log)
+                self._save_checkpoint(epoch)
 
             # if epoch % 7 == 5 or epoch % 7 == 6:
             #     self.logger.info(f"APN")
@@ -584,7 +586,6 @@ class RACNN_Trainer():
                 # cam_l = (coordinate[3]-coordinate[1]+coordinate[2]-coordinate[0])/(2*256)
                 ### ---- original implementation for batchsize 1
 
-
                 out_len = 256 * t_01[:,2]
                 out_center_x = (1 + t_01[:,0]) * 128
                 out_center_y = (1 + t_01[:,1]) * 128
@@ -605,41 +606,40 @@ class RACNN_Trainer():
                 # target_pos = torch.tensor([[gt_center_x, gt_center_y, gt_len]])
                 # target_pos = target_pos.repeat([B, 1]).to(self.device)
 
-
                 loss = F.mse_loss(t_01, target_pos, reduction='none').sum()
-                print(loss)
+                # print(loss)
                 loss.backward()
 
                 self.optimizer.step()
                 loss_meter.update(loss.item())
 
-                ## draw images
-                img_path = self.trainloader.dataset.get_fname(idx)
-                for i in range(B):
-                    img = cv2.imread(img_path[i], -1) ## [H, W, C]
-                    cam = heatmaps[i,:] * 0.3 + img * 0.5
-                    coordinate = coordinates[i,:]
-                    cv2.rectangle(
-                        cam, 
-                        (coordinate[1], coordinate[0]), 
-                        (coordinate[3], coordinate[2]), 
-                        (0, 255, 0), 2)#peak activation region
-                    cv2.rectangle(
-                        cam, 
-                        (out_center_x[i] - out_len[i]/2, out_center_y[i] - out_len[i]/2), 
-                        (out_center_x[i] + out_len[i]/2, out_center_y[i] + out_len[i]/2), 
-                        (0, 0, 255), 2) # cropped region by APN
+                # ## draw images
+                # img_path = self.trainloader.dataset.get_fname(idx)
+                # for i in range(B):
+                #     img = cv2.imread(img_path[i], -1) ## [H, W, C]
+                #     cam = heatmaps[i,:] * 0.3 + img * 0.5
+                #     coordinate = coordinates[i,:]
+                #     cv2.rectangle(
+                #         cam, 
+                #         (coordinate[1], coordinate[0]), 
+                #         (coordinate[3], coordinate[2]), 
+                #         (0, 255, 0), 2)#peak activation region
+                #     cv2.rectangle(
+                #         cam, 
+                #         (out_center_x[i] - out_len[i]/2, out_center_y[i] - out_len[i]/2), 
+                #         (out_center_x[i] + out_len[i]/2, out_center_y[i] + out_len[i]/2), 
+                #         (0, 0, 255), 2) # cropped region by APN
 
-                    write_text_to_img(cam, f"gt_lbl: {target[i]}", org=(20,50), fontScale = 0.3)
-                    write_text_to_img(cam, f"t_01: {t_01[i,:]}", org=(20,65), fontScale = 0.3)
-                    write_text_to_img(cam, f"target: {target_pos[i,:]}", org=(20,80), fontScale = 0.3)
+                #     write_text_to_img(cam, f"gt_lbl: {target[i]}", org=(20,50), fontScale = 0.3)
+                #     write_text_to_img(cam, f"t_01: {t_01[i,:]}", org=(20,65), fontScale = 0.3)
+                #     write_text_to_img(cam, f"target: {target_pos[i,:]}", org=(20,80), fontScale = 0.3)
 
-                    path = os.path.join(self.result_folder, 'debug')
-                    if not os.path.exists(path):
-                        print("makepath: ", path)
-                        os.mkdir(path)
-                    fname = os.path.join(path, f'{int(time.time())}.jpg')
-                    cv2.imwrite(fname, cam)
+                #     path = os.path.join(self.result_folder, 'debug')
+                #     if not os.path.exists(path):
+                #         print("makepath: ", path)
+                #         os.mkdir(path)
+                #     fname = os.path.join(path, f'{int(time.time())}.jpg')
+                #     cv2.imwrite(fname, cam)
                 
         print(loss_meter.avg)
         h0.remove()

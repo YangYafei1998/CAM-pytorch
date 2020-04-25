@@ -159,6 +159,11 @@ class RACNN(nn.Module):
             f_conv = self.conv_scale_1(x)
             f_gap = self.gap(f_conv)
             return self.classifier_1(self.drop(f_gap).squeeze(2).squeeze(2)), f_gap, f_conv
+        elif lvl == 2:
+            x = self.base2(x)
+            f_conv = self.conv_scale_2(x)
+            f_gap = self.gap(f_conv)
+            return self.classifier_2(self.drop(f_gap).squeeze(2).squeeze(2)), f_gap, f_conv
         else:
             raise NotImplementedError
             
@@ -206,23 +211,28 @@ class RACNN(nn.Module):
             self.unfreeze_network(self.classifier_0)
             self.unfreeze_network(self.classifier_1)
             self.unfreeze_network(self.classifier_2)
-            self.unfreeze_network(self.apn_conv_01)
-            self.unfreeze_network(self.apn_regress_01)
+            # self.unfreeze_network(self.apn_conv_01)
+            # self.unfreeze_network(self.apn_regress_01)
+            self.unfreeze_network(self.apn_map_chlwise)
 
 
-        ## classification scale 1
+        ### Scale 0
         out_0, f_gap_0, f_conv0 = self.classification(x, lvl=0)
         
+        ### Scale 1
         # t0 = self.apn_map(f_conv0, lvl=0) ## [B, 3]
         t0 = self.apn_map_chlwise(f_conv0, lvl=0) ## [B, 3]
-        
         grid = self.grid_sampler(t0) ## [B, H, W, 2]
         x1 = F.grid_sample(x, grid, align_corners=False, padding_mode='border') ## [B, 3, H, W] sampled using grid parameters
-
-        ## classification scale 2
         out_1, f_gap_1, f_conv1 = self.classification(x1, lvl=1)
 
-        return out_0, out_1, t0, f_gap_1
+        ### Scale 2
+        t1 = self.apn_map_chlwise(f_conv1, lvl=0) ## [B, 3]
+        grid = self.grid_sampler(t1) ## [B, H, W, 2]
+        x2 = F.grid_sample(x1, grid, align_corners=False, padding_mode='border') ## [B, 3, H, W] sampled using grid parameters
+        out_2, f_gap_2, f_conv2 = self.classification(x2, lvl=2)
+
+        return [out_0, out_1, out_2], [t0, t1]
 
     def freeze_network(self, module):
         for p in module.parameters():
