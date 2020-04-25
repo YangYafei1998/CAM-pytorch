@@ -60,9 +60,16 @@ class RACNN(nn.Module):
             basemodel.layer2,
             basemodel.layer3
         )
-
-        ## shared feature extractor
         self.base1 = nn.Sequential(
+            basemodel.conv1,
+            basemodel.bn1,
+            basemodel.relu,
+            basemodel.maxpool,
+            basemodel.layer1,
+            basemodel.layer2,
+            basemodel.layer3
+        )
+        self.base2 = nn.Sequential(
             basemodel.conv1,
             basemodel.bn1,
             basemodel.relu,
@@ -97,23 +104,21 @@ class RACNN(nn.Module):
             )
         self.classifier_1 = nn.Linear(512, num_classes)
 
-        # ## final conv for scale 2
-        # self.conv_scale_2 = nn.Sequential(
-        #     nn.Conv2d(1024, 512, kernel_size=1, bias=False),
-        #     nn.BatchNorm2d(512),
-        #     nn.Conv2d(512, 512, kernel_size=3, padding=1, bias=False)
-        #     nn.BatchNorm2d(512),
-        #     nn.ReLU(inplace=True),
-        #     )
+        ## classification head for scale 2
+        self.conv_scale_2 = nn.Sequential(
+            nn.Conv2d(1024, 512, kernel_size=1, bias=False), ## resnet50
+            # nn.Conv2d(256, 512, kernel_size=1, bias=False), ## resnet18
+            nn.Conv2d(512, 512, kernel_size=3, padding=1, bias=False),
+            nn.ReLU(inplace=True)
+            )
+        self.classifier_2 = nn.Linear(512, num_classes)
 
-        ## attention proposal head between scales 0 and 1
-        self.apn_scale_01 = nn.Sequential(
-            nn.Linear(512, 256, bias=True),
-            nn.Dropout(0.2),
-            nn.Linear(256, 128, bias=True),
-            nn.Dropout(0.2),
-            nn.Linear(128, 3, bias=True),
-            nn.Sigmoid()
+        ## final conv for scale 2
+        self.conv_scale_2 = nn.Sequential(
+            nn.Conv2d(1024, 512, kernel_size=1, bias=False), ## resnet50
+            # nn.Conv2d(256, 512, kernel_size=1, bias=False), ## resnet18
+            nn.Conv2d(512, 512, kernel_size=3, padding=1, bias=False),
+            nn.ReLU(inplace=True)
             )
 
         ## attention proposal head between scales 0 and 1
@@ -124,10 +129,10 @@ class RACNN(nn.Module):
         self.apn_regress_01 = nn.Sequential(
             nn.Linear(14*14*64, 1000, bias=True),
             nn.ReLU(),
-            nn.Dropout(),
+            nn.Dropout(0.5),
             nn.Linear(1000, 3, bias=True),
             nn.ReLU(),
-            nn.Dropout(),
+            nn.Dropout(0.5),
             nn.Sigmoid() ## chosen
         ) 
 
@@ -155,7 +160,7 @@ class RACNN(nn.Module):
         shift = torch.tensor([[0.5, 0.5, -1.0]]).to(xconv.device)
         scale = torch.tensor([[1.0, 1.0, 0.4]]).to(xconv.device)
         if lvl == 0:
-            t = self.apn_map_flatten_01(xconv)
+            t = self.apn_regress_01(self.apn_conv_01(xconv).flatten(start_dim=1))
             # shift the sigmoid output to ( [-0.5,0.5], [-0.5,0.5], [0.4,0.8] ) 
             t = (t-shift)*scale
             #print(t[0,...])
@@ -169,17 +174,23 @@ class RACNN(nn.Module):
         if train_config == 1:
             self.freeze_network(self.base)
             self.freeze_network(self.base1)
+            self.freeze_network(self.base2)
             self.freeze_network(self.conv_scale_0)
             self.freeze_network(self.conv_scale_1)
+            self.freeze_network(self.conv_scale_2)
             self.freeze_network(self.classifier_0)
             self.freeze_network(self.classifier_1)
+            self.freeze_network(self.classifier_2)
         else:
             self.unfreeze_network(self.base)
             self.unfreeze_network(self.base1)
+            self.unfreeze_network(self.base2)
             self.unfreeze_network(self.conv_scale_0)
             self.unfreeze_network(self.conv_scale_1)
+            self.unfreeze_network(self.conv_scale_2)
             self.unfreeze_network(self.classifier_0)
             self.unfreeze_network(self.classifier_1)
+            self.unfreeze_network(self.classifier_2)
             self.unfreeze_network(self.apn_conv_01)
             self.unfreeze_network(self.apn_regress_01)
 
@@ -189,6 +200,7 @@ class RACNN(nn.Module):
         t0 = self.apn_map(f_conv0, lvl=0) ## [B, 3]
         grid = self.grid_sampler(t0) ## [B, H, W, 2]
         x1 = F.grid_sample(x, grid, align_corners=False, padding_mode='border') ## [B, 3, H, W] sampled using grid parameters
+
         ## classification scale 2
         out_1, f_gap_1, f_conv1 = self.classification(x1, lvl=1)
 
