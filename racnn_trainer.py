@@ -113,6 +113,8 @@ class RACNN_Trainer():
         self.save_period = config['ckpt_save_period']
         batch_size = config['batch_size']
         
+        self.mini_train = config.get('mini_train', False)
+
         if config['disable_workers']:
             self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0) 
             self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
@@ -271,6 +273,8 @@ class RACNN_Trainer():
         # for batch_idx, batch in enumerate(self.trainloader):
             data, target, idx = batch
             target = self.generate_confusion_target(target)
+
+            if self.mini_train and batch_idx == 5: break
 
             ## data augmentation via imgaug
             if self.trainloader.dataset.augmentation:
@@ -529,7 +533,8 @@ class RACNN_Trainer():
             data, target = data.to(self.device), target.to(self.device)
             B = data.shape[0]
             H, W = data.shape[-2:]
-            # if batch_idx == 5: break
+
+            if self.mini_train and batch_idx == 5: break
 
             self.optimizer.zero_grad()
             with torch.set_grad_enabled(True):
@@ -605,6 +610,8 @@ class RACNN_Trainer():
             leave=False):
         # for batch_idx, batch in enumerate(self.trainloader):
             
+            if self.mini_train and batch_idx == 5: break
+
             data, target, idx = batch
 
             target = self.generate_confusion_target(target)
