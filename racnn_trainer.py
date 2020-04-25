@@ -599,11 +599,13 @@ class RACNN_Trainer():
                 gt_len = (coordinates[:,3]-coordinates[:,1]+coordinates[:,2]-coordinates[:,0])/(2*256)
                 target_pos = torch.FloatTensor(np.stack([gt_center_x, gt_center_y, gt_len], axis=1)).to(self.device)
 
-                gt_center_x = 0.3
-                gt_center_y = 0.3
-                gt_len = 0.4
-                target_pos = torch.tensor([[gt_center_x, gt_center_y, gt_len]])
-                target_pos = target_pos.repeat([B, 1]).to(self.device)
+                # gt_center_x = 0.3
+                # gt_center_y = 0.3
+                # gt_len = 0.4
+                # target_pos = torch.tensor([[gt_center_x, gt_center_y, gt_len]])
+                # target_pos = target_pos.repeat([B, 1]).to(self.device)
+
+
                 loss = F.mse_loss(t_01, target_pos, reduction='none').sum()
                 print(loss)
                 loss.backward()

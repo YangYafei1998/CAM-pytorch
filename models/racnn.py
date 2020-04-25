@@ -46,6 +46,10 @@ class RACNN(nn.Module):
     def __init__(self, num_classes, device, out_h=224, out_w=224):
         super(RACNN, self).__init__()
         
+        # shift the sigmoid output to ( [-0.5,0.5], [-0.5,0.5], [0.4,0.8] ) 
+        self.shift = torch.tensor([[0.5, 0.5, -1.0]]).to(device)
+        self.scale = torch.tensor([[1.0, 1.0, 0.4]]).to(device)
+
         self.num_classes = num_classes
         basemodel = models.resnet50(pretrained=True)
         # basemodel = models.resnet18(pretrained=True)
@@ -135,6 +139,10 @@ class RACNN(nn.Module):
             nn.Dropout(0.5),
             nn.Sigmoid() ## chosen
         ) 
+        self.apn_map_flatten_01 = nn.Sequential(
+            nn.Linear(14*14, 3, bias=True),
+            nn.Sigmoid()
+        )
 
         ## print the network architecture
         print(self)
@@ -155,15 +163,22 @@ class RACNN(nn.Module):
             raise NotImplementedError
             
     def apn_map(self, xconv, lvl):
-        # x = self.drop(x)
-        # print(x.shape)
-        shift = torch.tensor([[0.5, 0.5, -1.0]]).to(xconv.device)
-        scale = torch.tensor([[1.0, 1.0, 0.4]]).to(xconv.device)
         if lvl == 0:
             t = self.apn_regress_01(self.apn_conv_01(xconv).flatten(start_dim=1))
-            # shift the sigmoid output to ( [-0.5,0.5], [-0.5,0.5], [0.4,0.8] ) 
-            t = (t-shift)*scale
-            #print(t[0,...])
+            t = (t-self.shift)*self.scale
+            return t
+        else:
+            raise NotImplementedError
+
+    def apn_map_chlwise(self, xconv, lvl):
+        if lvl == 0:
+            ## channelwise pooling 
+            B, C = xconv.shape[0:2]
+            xconv = xconv.view(B, C, -1)
+            xconv = xconv.permute(0,2,1)
+            xconv = F.adaptive_avg_pool1d(xconv, 1).squeeze(2)
+            t = self.apn_map_flatten_01(xconv.flatten(start_dim=1))
+            t = (t-self.shift)*self.scale
             return t
         else:
             raise NotImplementedError
@@ -197,7 +212,10 @@ class RACNN(nn.Module):
 
         ## classification scale 1
         out_0, f_gap_0, f_conv0 = self.classification(x, lvl=0)
-        t0 = self.apn_map(f_conv0, lvl=0) ## [B, 3]
+        
+        # t0 = self.apn_map(f_conv0, lvl=0) ## [B, 3]
+        t0 = self.apn_map_chlwise(f_conv0, lvl=0) ## [B, 3]
+        
         grid = self.grid_sampler(t0) ## [B, H, W, 2]
         x1 = F.grid_sample(x, grid, align_corners=False, padding_mode='border') ## [B, 3, H, W] sampled using grid parameters
 
