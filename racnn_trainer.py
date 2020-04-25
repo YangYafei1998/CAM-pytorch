@@ -569,25 +569,27 @@ class RACNN_Trainer():
 
                 ### ---- original implementation for batchsize 1
                 ### get cropped region calculated by the APN
-                # out_len = 256 * t_01[0][2]
-                # out_center_x = (1 + t_01[0][0]) * 128
-                # out_center_y = (1 + t_01[0][1]) * 128
-                # ### get CAM peak
-                # coordinate, heatmap = self.get_cam_peak(f_conv_0[-1], weight_softmax_0[target,:])
-                # cam = heatmap * 0.3 + img * 0.5
-                # cv2.rectangle(cam, (coordinate[1], coordinate[0]), (coordinate[3], coordinate[2]), (0, 255, 0), 2)#peak activation region
-                # cv2.rectangle(cam, (out_center_x - out_len/2, out_center_x - out_len/2), (out_center_x + out_len/2, out_center_x + out_len/2), (0, 0, 255), 2) # cropped region by APN
-                # center_x = (coordinate[1]+coordinate[3])/2
-                # cam_x = (center_x - 128)/128
-                # center_y = (coordinate[0]+coordinate[2])/2
-                # cam_y = (center_y - 128)/128
-                # cam_l = (coordinate[3]-coordinate[1]+coordinate[2]-coordinate[0])/(2*256)
-                ### ---- original implementation for batchsize 1
+                out_len = 256 * t_01[0][2]
+                out_center_x = (1 + t_01[0][0]) * 128
+                out_center_y = (1 + t_01[0][1]) * 128
+                ### get CAM peak
+                coordinate, heatmap = self.get_cam_peak(f_conv_0[-1], weight_softmax_0[target,:])
+                cam = heatmap * 0.3 + img * 0.5
+                cv2.rectangle(cam, (coordinate[1], coordinate[0]), (coordinate[3], coordinate[2]), (0, 255, 0), 2)#peak activation region
+                cv2.rectangle(cam, (out_center_x - out_len/2, out_center_y - out_len/2), (out_center_x + out_len/2, out_center_x + out_len/2), (0, 0, 255), 2) # cropped region by APN
 
+                center_x = (coordinate[1]+coordinate[3])/2
+                cam_x = (center_x - 128)/128
+                center_y = (coordinate[0]+coordinate[2])/2
+                cam_y = (center_y - 128)/128
+                cam_l = (coordinate[3]-coordinate[1]+coordinate[2]-coordinate[0])/(2*256)
 
-                out_len = 256 * t_01[:,2]
-                out_center_x = (1 + t_01[:,0]) * 128
-                out_center_y = (1 + t_01[:,1]) * 128
+                target_pos = torch.FloatTensor(np.array([cam_x, cam_y, cam_l]))
+
+                write_text_to_img(cam, f"target: {target}", org=(20,50), fontScale = 0.3)
+                write_text_to_img(cam, f"t_01: {t_01}", org=(20,65), fontScale = 0.3)
+                write_text_to_img(cam, f"target: {target_pos}", org=(20,80), fontScale = 0.3)
+                cv2.imwrite('/userhome/30/yfyang/CAM-pytorch/saved/debug/'+f'{int(time.time())}.jpg', cam)
                 
                 ### get CAM peak
                 ## coordinate is the pixel of the peak

@@ -46,8 +46,8 @@ def main(config):
     ## dataset for 6 classes
 
     train_dataset = ImageDataset(
-        'image_path_folder_6/train_image_list_sorted_6.txt', 
-        'image_path_folder_6/train_image_label_sorted_6.txt', 
+        'image_path_folder/train_image_list_sorted_6.txt', 
+        'image_path_folder/train_image_label_sorted_6.txt', 
         is_training=True, 
         augmentation=augmentation,
         temporal_coherence=temporal)
