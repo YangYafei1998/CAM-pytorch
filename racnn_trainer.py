@@ -141,12 +141,12 @@ class RACNN_Trainer():
         if pretrain_ckp:
             filename = os.path.join(
                 self.ckpt_folder,
-                'pretrain-checkpoint-epoch{}.pth'.format(epoch)
+                'pretrain-checkpoint-e{}.pth'.format(epoch)
             )
         else:
             filename = os.path.join(
                 self.ckpt_folder,
-                'checkpoint-epoch{}.pth'.format(epoch)
+                'checkpoint-e{}.pth'.format(epoch)
             )
         torch.save(state, filename)
         self.logger.info("Saving checkpoint: {} ...".format(filename))
@@ -197,6 +197,7 @@ class RACNN_Trainer():
 
     ## pre-train session
     def pretrain(self):
+        # for _ in range(5):
         for _ in range(5):
             self.pretrain_classification()
         self._save_checkpoint(0, pretrain_ckp=True)
@@ -211,7 +212,7 @@ class RACNN_Trainer():
         if max_epoch is not None:
             self.max_epoch = max_epoch
 
-        self.test_one_epoch(0)
+        # self.test_one_epoch(0)
 
         for epoch in range(max_epoch):
             ## training
@@ -263,23 +264,23 @@ class RACNN_Trainer():
         weight_softmax_1 = np.squeeze(params_classifier_1[-2].data.cpu().numpy())   
         weight_softmax_2 = np.squeeze(params_classifier_2[-2].data.cpu().numpy())
         
-        f_conv_0, f_conv_1, f_conv_2 = [], [], []
-        def hook_feature_conv_scale_0(module, input, output):
-            # print("#################in hook feature!")
-            f_conv_0.clear()
-            f_conv_0.append(output.data.cpu().numpy())
-        def hook_feature_conv_scale_1(module, input, output):
-            f_conv_1.clear()
-            f_conv_1.append(output.data.cpu().numpy())
-        def hook_feature_conv_scale_2(module, input, output):
-            f_conv_2.clear()
-            f_conv_2.append(output.data.cpu().numpy())
+        # f_conv_0, f_conv_1, f_conv_2 = [], [], []
+        # def hook_feature_conv_scale_0(module, input, output):
+        #     # print("#################in hook feature!")
+        #     f_conv_0.clear()
+        #     f_conv_0.append(output.data.cpu().numpy())
+        # def hook_feature_conv_scale_1(module, input, output):
+        #     f_conv_1.clear()
+        #     f_conv_1.append(output.data.cpu().numpy())
+        # def hook_feature_conv_scale_2(module, input, output):
+        #     f_conv_2.clear()
+        #     f_conv_2.append(output.data.cpu().numpy())
 
 
-        h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
-        h1 = self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
-        h2 = self.model.conv_scale_2[-2].register_forward_hook(hook_feature_conv_scale_2)
-        print("h0, ", h0)
+        # h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
+        # h1 = self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
+        # h2 = self.model.conv_scale_2[-2].register_forward_hook(hook_feature_conv_scale_2)
+        # print("h0, ", h0)
 
 
         for batch_idx, batch in tqdm.tqdm(
@@ -340,20 +341,20 @@ class RACNN_Trainer():
                 gt_probs_1 = probs_1[list(range(B)), target]
                 gt_probs_2 = probs_2[list(range(B)), target]
                 
-                # rank_loss_1 = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
-                # rank_loss_2 = self.criterion.PairwiseRankingLoss(gt_probs_1, gt_probs_2, margin=self.margin)
+                rank_loss_1 = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
+                rank_loss_2 = self.criterion.PairwiseRankingLoss(gt_probs_1, gt_probs_2, margin=self.margin)
+                rank_loss = rank_loss_1.sum() + rank_loss_2.sum()
                 
-                
-                img_path = self.trainloader.dataset.get_fname(idx)
-                rank_loss_1=0.0
-                rank_loss_2=0.0
-                for batch_inner_id, d in enumerate(weight_softmax_0_gt):                    
-                    count0 = camforCount(weight_softmax_0_gt[batch_inner_id], f_conv_0[-1][batch_inner_id], img_path[0])
-                    count1 = camforCount(weight_softmax_1_gt[batch_inner_id], f_conv_1[-1][batch_inner_id], img_path[0])
-                    count2 = camforCount(weight_softmax_2_gt[batch_inner_id], f_conv_2[-1][batch_inner_id], img_path[0])
-                    rank_loss_1 += self.criterion.RankingLossDivideByCount(gt_probs_0, count0, gt_probs_1, count1, margin=self.margin)
-                    rank_loss_2 += self.criterion.RankingLossDivideByCount(gt_probs_1, count1, gt_probs_2, count2, margin=self.margin)                
-                rank_loss = rank_loss_1 + rank_loss_2
+                # img_path = self.trainloader.dataset.get_fname(idx)
+                # rank_loss_1=0.0
+                # rank_loss_2=0.0
+                # for batch_inner_id, d in enumerate(weight_softmax_0_gt):                    
+                #     count0 = camforCount(weight_softmax_0_gt[batch_inner_id], f_conv_0[-1][batch_inner_id], img_path[0])
+                #     count1 = camforCount(weight_softmax_1_gt[batch_inner_id], f_conv_1[-1][batch_inner_id], img_path[0])
+                #     count2 = camforCount(weight_softmax_2_gt[batch_inner_id], f_conv_2[-1][batch_inner_id], img_path[0])
+                #     rank_loss_1 += self.criterion.RankingLossDivideByCount(gt_probs_0, count0, gt_probs_1, count1, margin=self.margin)
+                #     rank_loss_2 += self.criterion.RankingLossDivideByCount(gt_probs_1, count1, gt_probs_2, count2, margin=self.margin)                
+                # rank_loss = rank_loss_1 + rank_loss_2
 
 
 
@@ -490,17 +491,17 @@ class RACNN_Trainer():
                 gt_probs_1 = probs_1[list(range(B)), target]
                 gt_probs_2 = probs_2[list(range(B)), target]
                 
-                # rank_loss_1 = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
-                # rank_loss_2 = self.criterion.PairwiseRankingLoss(gt_probs_1, gt_probs_2, margin=self.margin)
+                rank_loss_1 = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
+                rank_loss_2 = self.criterion.PairwiseRankingLoss(gt_probs_1, gt_probs_2, margin=self.margin)
                 
                 
-                img_path = self.testloader.dataset.get_fname(idx)
-                count0 = camforCount(weight_softmax_0_gt, f_conv_0[-1], img_path[0])
-                count1 = camforCount(weight_softmax_1_gt, f_conv_1[-1], img_path[0])
-                count2 = camforCount(weight_softmax_2_gt, f_conv_2[-1], img_path[0])
-                # print("##########count ,", count0, count1, count2)
-                rank_loss_1 = self.criterion.RankingLossDivideByCount(gt_probs_0, count0, gt_probs_1, count1, margin=self.margin)
-                rank_loss_2 = self.criterion.RankingLossDivideByCount(gt_probs_1, count1, gt_probs_2, count2, margin=self.margin)
+                # img_path = self.testloader.dataset.get_fname(idx)
+                # count0 = camforCount(weight_softmax_0_gt, f_conv_0[-1], img_path[0])
+                # count1 = camforCount(weight_softmax_1_gt, f_conv_1[-1], img_path[0])
+                # count2 = camforCount(weight_softmax_2_gt, f_conv_2[-1], img_path[0])
+                # # print("##########count ,", count0, count1, count2)
+                # rank_loss_1 = self.criterion.RankingLossDivideByCount(gt_probs_0, count0, gt_probs_1, count1, margin=self.margin)
+                # rank_loss_2 = self.criterion.RankingLossDivideByCount(gt_probs_1, count1, gt_probs_2, count2, margin=self.margin)
                 
 
                 rank_loss = rank_loss_1.sum() + rank_loss_2.sum()
@@ -634,7 +635,6 @@ class RACNN_Trainer():
         return
 
 
-    ##
     def pretrain_apn(self, max_epoch=3):
         print("pretran APN")
 
@@ -741,7 +741,7 @@ class RACNN_Trainer():
                 loss_meter.update(loss.item())
 
                 ## draw images
-                img_path = self.trainloader.dataset.get_fname(idx[0])
+                img_path = self.trainloader.dataset.get_fname(idx)
                 for i in range(B):
                     # img_path = self.trainloader.dataset.get_fname([idx[j][0].item()])
                     img = cv2.imread(img_path[i], -1) ## [H, W, C]

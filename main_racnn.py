@@ -124,6 +124,8 @@ if __name__ == '__main__':
                         help='the size of each minibatch')
     parser.add_argument('-lr', '--learning_rate', default=None, type=float,
                         help='the size of each minibatch')
+    parser.add_argument('--margin', default=None, type=float,
+                        help='margin size')
     parser.add_argument('--interleave', default=None, type=int,
                         help='the size of each minibatch')
 
@@ -161,6 +163,8 @@ if __name__ == '__main__':
         config.set_content('pretrain', args.pretrain)
     if args.mini_train:
         config.set_content('mini_train', args.mini_train)
+    if args.margin:
+        config.set_content('margin', args.margin)
 
     ## hyperparameters
     if args.weight_decay is not None:

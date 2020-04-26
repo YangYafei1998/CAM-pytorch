@@ -175,8 +175,10 @@ class ImageDataset():
         return batch_imgs, batch_targets
 
     def get_fname(self, indices):
+        # print("indices is ", indices)
         batch_fnames=[]
         for idx in indices:
+            # print("idx is ,", idx)
             batch_fnames.append(self.image_files[idx])
         return batch_fnames
 
