@@ -78,17 +78,6 @@ class TCLoss(nn.Module):
         prev = temp_features[:, 1]
         next = temp_features[:, 2]
         
-        # t_loss_prev = nn.functional.mse_loss(cur, prev, reduction='none')
-        # t_loss_next = nn.functional.mse_loss(cur, next, reduction='none')
-        # cur_prev_next_dist = t_loss_next.sum(dim=-1) + t_loss_prev.sum(dim=-1)
-        # cur_prev_next_dist = torch.sum((cur-prev)**2, dim=-1).sqrt() + torch.sum((cur-next)**2, dim=-1).sqrt()
-
-        # cur_0 = cur.clone().unsqueeze(0)
-        # cur_1 = cur.clone().unsqueeze(1)
-        # diff = cur_0 - cur_1
-        # batch_dist = torch.sum(torch.pow(diff), dim=-1)
-        # batch_dist_sum = batch_dist.sqrt().sum(dim=-1) ## detach grad of the deliminator
-
         ## Positive sample
         # print()
         cur_prev_next_similarity = torch.exp(torch.sum(cur*prev, dim=-1)/C) + torch.exp(torch.sum(cur*next, dim=-1)/C) 
