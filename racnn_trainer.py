@@ -335,24 +335,24 @@ class RACNN_Trainer():
                 ### Temporal coherence
                 if self.time_consistency:
                     temp_loss = 0.0
-                    # # conf_0 = self.criterion.ComputeEntropyAsWeight(out_0).view(B, 3)
-                    # # conf_1 = self.criterion.ComputeEntropyAsWeight(out_1).view(B, 3)
-                    # ## [0::3] staring from 0, get every another three elements
-                    # temp_loss_0 = self.criterion.TemporalConsistencyLoss(out_0[0::3], out_0[1::3], out_0[2::3], reduction='none')
-                    # temp_loss_1 = self.criterion.TemporalConsistencyLoss(out_1[0::3], out_1[1::3], out_1[2::3], reduction='none')
-                    # temp_loss_2 = self.criterion.TemporalConsistencyLoss(out_2[0::3], out_2[1::3], out_2[2::3], reduction='none')
-                    # # temp_loss += (temp_loss_0*(conf_0**2) + (1-conf_0)**2).sum()
-                    # # temp_loss += (temp_loss_1*(conf_1**2) + (1-conf_1)**2).sum()
-                    # temp_loss = temp_loss_0.sum() + temp_loss_1.sum() + temp_loss_2.sum()
+                    # conf_0 = self.criterion.ComputeEntropyAsWeight(out_0).view(B, 3)
+                    # conf_1 = self.criterion.ComputeEntropyAsWeight(out_1).view(B, 3)
+                    ## [0::3] staring from 0, get every another three elements
+                    temp_loss_0 = self.criterion.TemporalConsistencyLoss(out_0[0::3], out_0[1::3], out_0[2::3], reduction='none')
+                    temp_loss_1 = self.criterion.TemporalConsistencyLoss(out_1[0::3], out_1[1::3], out_1[2::3], reduction='none')
+                    temp_loss_2 = self.criterion.TemporalConsistencyLoss(out_2[0::3], out_2[1::3], out_2[2::3], reduction='none')
+                    # temp_loss += (temp_loss_0*(conf_0**2) + (1-conf_0)**2).sum()
+                    # temp_loss += (temp_loss_1*(conf_1**2) + (1-conf_1)**2).sum()
+                    temp_loss = temp_loss_0.sum() + temp_loss_1.sum() + temp_loss_2.sum()
 
-                    ### NEW TEMPORAL COHERENCE LOSS
-                    # print(feat_hooked[0].shape)
-                    feat_gap_0 = feat_hooked[0].squeeze().view(B, 3, -1)
-                    temp_loss_0 = self.criterion.BatchContrastiveLoss(feat_gap_0)
-                    print(temp_loss_0)
-                    temp_loss += temp_loss_0
-                    feat_hooked.clear() ## clear for next batch
-                    # input()
+                    # ### NEW TEMPORAL COHERENCE LOSS
+                    # # print(feat_hooked[0].shape)
+                    # feat_gap_0 = feat_hooked[0].squeeze().view(B, 3, -1)
+                    # temp_loss_0 = self.criterion.BatchContrastiveLoss(feat_gap_0)
+                    # print(temp_loss_0)
+                    # temp_loss += temp_loss_0
+                    # feat_hooked.clear() ## clear for next batch
+                    # # input()
 
 
                 loss = 0.0

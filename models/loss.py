@@ -89,15 +89,20 @@ class TCLoss(nn.Module):
         # batch_dist_sum = batch_dist.sqrt().sum(dim=-1) ## detach grad of the deliminator
 
         ## Positive sample
-        dotprod_prev = torch.sum(cur*prev, dim=-1) ## inner product of each feature in cur to that in prev
-        dotprod_next = torch.sum(cur*next, dim=-1) ## inner product of each feature in cur to that in prev
-        cur_prev_next_similarity = dotprod_next + dotprod_prev
-        ## Negative samples
-        batch_similarity = torch.sum(torch.matmul(cur,cur.t()), dim=-1) ## sum of each cur to all curs
+        print()
+        similarity_prev = torch.exp(torch.sum(cur*prev, dim=-1)) 
+        print(similarity_prev)
+        similarity_next = torch.exp(torch.sum(cur*next, dim=-1)) 
+        print(similarity_next)
 
-        # print(cur_prev_next_similarity)
-        # print(batch_similarity)
-        return (-1.0*cur_prev_next_similarity/batch_similarity).sum()
+        cur_prev_next_similarity = similarity_prev+similarity_next
+        ## Negative samples
+        batch_similarity = torch.sum(torch.exp(torch.matmul(cur,cur.t())), dim=-1) ## sum of each cur to all curs
+
+        print(cur_prev_next_similarity)
+        print(batch_similarity)
+        input()
+        return (-1.0* torch.log(cur_prev_next_similarity/batch_similarity)).sum()
 
 
 
