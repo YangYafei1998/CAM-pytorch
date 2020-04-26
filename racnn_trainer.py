@@ -149,16 +149,16 @@ class RACNN_Trainer():
                 'checkpoint-e{}.pth'.format(epoch)
             )
         torch.save(state, filename)
-        self.logger.info("Saving checkpoint: {} ...".format(filename))
+        self.logger.info("Saving checkpoint: {} ..\n".format(filename))
         if save_best:
             best_path = os.path.join(self.ckpt_folder, 'model_best.pth')
             torch.save(state, best_path)
-            self.logger.info("Saving current best: {} ...".format('model_best.pth'))
+            self.logger.info("Saving current best: {} ...\n".format('model_best.pth'))
 
 
     ## resume from a checkpoint
     def _resume_checkpoint(self, resume_path, load_pretrain=False):
-        self.logger.info("Loading checkpoint: {} ...".format(resume_path))
+        self.logger.info("Loading checkpoint: {} ..\n".format(resume_path))
         checkpoint = torch.load(resume_path)
         print(checkpoint['config'])
         if not load_pretrain:
@@ -282,13 +282,15 @@ class RACNN_Trainer():
         # h2 = self.model.conv_scale_2[-2].register_forward_hook(hook_feature_conv_scale_2)
         # print("h0, ", h0)
 
-
+        
         for batch_idx, batch in tqdm.tqdm(
             enumerate(self.trainloader), 
             total=len(self.trainloader),
             desc='train'+': ', 
             ncols=80, 
             leave=False):
+
+            # batch_idx = 30
             data, target, idx = batch
             target = self.generate_confusion_target(target)
 
@@ -384,6 +386,13 @@ class RACNN_Trainer():
                 self.optimizer.step()
 
                 ## meter update
+
+                # print("loss_meter.shape, ",loss_meter.shape)
+                # print("loss.shape, ",loss.shape)
+                # print("cls_loss_meter.shape, ",cls_loss_meter.shape)
+                # print("cls_loss.shape, ",cls_loss.shape)
+                # print("rank_loss_meter.shape, ",rank_loss_meter.shape)
+                # print("rank_loss.shape, ",rank_loss.shape)               
                 loss_meter.update(loss, 1)
                 cls_loss_meter.update(cls_loss, 1)
                 rank_loss_meter.update(rank_loss, 1)
@@ -499,7 +508,7 @@ class RACNN_Trainer():
                 # count0 = camforCount(weight_softmax_0_gt, f_conv_0[-1], img_path[0])
                 # count1 = camforCount(weight_softmax_1_gt, f_conv_1[-1], img_path[0])
                 # count2 = camforCount(weight_softmax_2_gt, f_conv_2[-1], img_path[0])
-                # # print("##########count ,", count0, count1, count2)
+                # print("##########count ,", count0, count1, count2)
                 # rank_loss_1 = self.criterion.RankingLossDivideByCount(gt_probs_0, count0, gt_probs_1, count1, margin=self.margin)
                 # rank_loss_2 = self.criterion.RankingLossDivideByCount(gt_probs_1, count1, gt_probs_2, count2, margin=self.margin)
                 
@@ -514,7 +523,7 @@ class RACNN_Trainer():
                 accuracy_1.update(compute_acc(out_1, target, B_out), 1)
                 accuracy_2.update(compute_acc(out_2, target, B_out), 1)
 
-                if self.draw_cams and epoch % self.save_period == 0  or epoch==0:
+                if (self.draw_cams and epoch % self.save_period == 0)  or epoch==0:
                     img_path = self.testloader.dataset.get_fname(idx)
                     # print(img_path)
                     # print("##########################3target ", target)
@@ -563,6 +572,7 @@ class RACNN_Trainer():
                 write_video_from_images(cam_path_scale_2, videoname_2)
                 shutil.rmtree(cam_path_scale_2)
 
+                draw_fig(self.log_folder)
                 h0.remove()
                 h1.remove()
                 h2.remove()
