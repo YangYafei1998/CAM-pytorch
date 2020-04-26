@@ -73,6 +73,7 @@ class TCLoss(nn.Module):
     def BatchContrastiveLoss(self, temp_features):
         ## [B, 3, C]
         assert len(temp_features.shape) == 3
+        C=temp_features.shape[2]
         cur  = temp_features[:, 0]
         prev = temp_features[:, 1]
         next = temp_features[:, 2]
@@ -89,19 +90,13 @@ class TCLoss(nn.Module):
         # batch_dist_sum = batch_dist.sqrt().sum(dim=-1) ## detach grad of the deliminator
 
         ## Positive sample
-        print()
-        similarity_prev = torch.exp(torch.sum(cur*prev, dim=-1)) 
-        print(similarity_prev)
-        similarity_next = torch.exp(torch.sum(cur*next, dim=-1)) 
-        print(similarity_next)
-
-        cur_prev_next_similarity = similarity_prev+similarity_next
+        # print()
+        cur_prev_next_similarity = torch.exp(torch.sum(cur*prev, dim=-1)/C) + torch.exp(torch.sum(cur*next, dim=-1)/C) 
         ## Negative samples
-        batch_similarity = torch.sum(torch.exp(torch.matmul(cur,cur.t())), dim=-1) ## sum of each cur to all curs
-
-        print(cur_prev_next_similarity)
-        print(batch_similarity)
-        input()
+        batch_similarity = torch.sum(torch.exp(torch.matmul(cur,cur.t())/C), dim=-1) ## sum of each cur to all curs
+        # print(cur_prev_next_similarity)
+        # print(batch_similarity)
+        # input()
         return (-1.0* torch.log(cur_prev_next_similarity/batch_similarity)).sum()
 
 
