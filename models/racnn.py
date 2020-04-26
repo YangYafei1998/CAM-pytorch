@@ -38,15 +38,21 @@ class GridSampler(nn.Module):
         # print(X.shape)
         return torch.cat((X, Y), dim=-1)
 
-class RACNN(nn.Module):
 
-    detach_modules = {'base', 'classifier0', 'classifier1', 'apn01'}
+
+
+class RACNN(nn.Module):
 
     def __init__(self, num_classes, device, out_h=224, out_w=224):
         super(RACNN, self).__init__()
         
+        # shift the sigmoid output to ( [-0.5,0.5], [-0.5,0.5], [0.4,0.8] ) 
+        self.shift = torch.tensor([[0.5, 0.5, -1.0]]).to(device)
+        self.scale = torch.tensor([[1.0, 1.0, 0.4]]).to(device)
+
         self.num_classes = num_classes
         basemodel = models.resnet50(pretrained=True)
+        # basemodel = models.resnet18(pretrained=True)
         
         ## shared feature extractor
         self.base = nn.Sequential(
@@ -58,9 +64,16 @@ class RACNN(nn.Module):
             basemodel.layer2,
             basemodel.layer3
         )
-
-        ## shared feature extractor
         self.base1 = nn.Sequential(
+            basemodel.conv1,
+            basemodel.bn1,
+            basemodel.relu,
+            basemodel.maxpool,
+            basemodel.layer1,
+            basemodel.layer2,
+            basemodel.layer3
+        )
+        self.base2 = nn.Sequential(
             basemodel.conv1,
             basemodel.bn1,
             basemodel.relu,
@@ -79,7 +92,8 @@ class RACNN(nn.Module):
 
         ## classification head for scale 0
         self.conv_scale_0 = nn.Sequential(
-            nn.Conv2d(1024, 512, kernel_size=1, bias=False),
+            nn.Conv2d(1024, 512, kernel_size=1, bias=False), ## resnet50
+            # nn.Conv2d(256, 512, kernel_size=1, bias=False), ## resnet18
             nn.Conv2d(512, 512, kernel_size=3, padding=1, bias=False),
             nn.ReLU(inplace=True)
             )
@@ -87,37 +101,48 @@ class RACNN(nn.Module):
 
         ## classification head for scale 1
         self.conv_scale_1 = nn.Sequential(
-            nn.Conv2d(1024, 512, kernel_size=1, bias=False),
+            nn.Conv2d(1024, 512, kernel_size=1, bias=False), ## resnet50
+            # nn.Conv2d(256, 512, kernel_size=1, bias=False), ## resnet18
             nn.Conv2d(512, 512, kernel_size=3, padding=1, bias=False),
             nn.ReLU(inplace=True)
             )
         self.classifier_1 = nn.Linear(512, num_classes)
 
-        ## attention proposal head between scales 0 and 1
-        self.apn_scale_01 = nn.Sequential(
-            nn.Linear(512, 256, bias=True),
-            nn.Dropout(0.2),
-            nn.Linear(256, 128, bias=True),
-            nn.Dropout(0.2),
-            nn.Linear(128, 3, bias=True),
-            nn.Sigmoid()
+        ## classification head for scale 2
+        self.conv_scale_2 = nn.Sequential(
+            nn.Conv2d(1024, 512, kernel_size=1, bias=False), ## resnet50
+            # nn.Conv2d(256, 512, kernel_size=1, bias=False), ## resnet18
+            nn.Conv2d(512, 512, kernel_size=3, padding=1, bias=False),
+            nn.ReLU(inplace=True)
+            )
+        self.classifier_2 = nn.Linear(512, num_classes)
+
+        ## final conv for scale 2
+        self.conv_scale_2 = nn.Sequential(
+            nn.Conv2d(1024, 512, kernel_size=1, bias=False), ## resnet50
+            # nn.Conv2d(256, 512, kernel_size=1, bias=False), ## resnet18
+            nn.Conv2d(512, 512, kernel_size=3, padding=1, bias=False),
+            nn.ReLU(inplace=True)
             )
 
         ## attention proposal head between scales 0 and 1
-        self.apn_map_scale_01 = nn.Sequential(
-            nn.Conv2d(512, 128, kernel_size=1, bias=False),
+        self.apn_conv_01 = nn.Sequential(
+            nn.Conv2d(512, 64, kernel_size=1, bias=False),
             nn.LeakyReLU(0.2),
-            # nn.Tanh(),
-            nn.Conv2d(128, 1, kernel_size=1, bias=False),
-            nn.LeakyReLU(0.2),
-            # nn.Tanh(),
             )
-        self.apn_map_flatten_01 = nn.Sequential(
-            nn.Linear(14*14+self.num_classes, 3, bias=True),
-            # nn.Linear(14*14, 3, bias=True),
-            # nn.Tanh() ## tanh results seem to be worse
-            nn.Sigmoid() ## so-so
+        self.apn_regress_01 = nn.Sequential(
+            nn.Linear(14*14*64, 1000, bias=True),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(1000, 3, bias=True),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Sigmoid() ## chosen
         ) 
+        self.apn_map_flatten_01 = nn.Sequential(
+            nn.Linear(14*14, 3, bias=True),
+            nn.Sigmoid()
+        )
 
         ## print the network architecture
         print(self)
@@ -134,52 +159,31 @@ class RACNN(nn.Module):
             f_conv = self.conv_scale_1(x)
             f_gap = self.gap(f_conv)
             return self.classifier_1(self.drop(f_gap).squeeze(2).squeeze(2)), f_gap, f_conv
-        else:
-            raise NotImplementedError
-        
-    def apn(self, xgap, lvl):
-        # x = self.drop(x)
-        # print(x.shape)
-        shift = torch.tensor([[0.5, 0.5, -0.5]]).to(xgap.device)
-        scale = torch.tensor([[1.0, 1.0, 0.3]]).to(xgap.device)
-        if lvl == 0:
-            t = self.apn_scale_01(xgap.squeeze(2).squeeze(2))
-            # shift the sigmoid output to ( [-0.5,0.5], [-0.5,0.5], [0,0.7] ) 
-            t = (t-shift)*scale
-            #print(t[0,...])
-            return t
+        elif lvl == 2:
+            x = self.base2(x)
+            f_conv = self.conv_scale_2(x)
+            f_gap = self.gap(f_conv)
+            return self.classifier_2(self.drop(f_gap).squeeze(2).squeeze(2)), f_gap, f_conv
         else:
             raise NotImplementedError
             
-    def apn_map(self, xconv, target, lvl):
-        # x = self.drop(x) 
-        # after conv->h*w, after gap->vector(cannel*1*1 's tensor)
-        # print(x.shape)
-        # shift = torch.tensor([[0.0, 0.0, 1.0]]).to(xconv.device)
-        # scale = torch.tensor([[0.5, 0.5, 0.4]]).to(xconv.device)
-        shift = torch.tensor([[0.5, 0.5, -1.0]]).to(xconv.device)
-        scale = torch.tensor([[1.0, 1.0, 0.4]]).to(xconv.device)
+    def apn_map(self, xconv, lvl):
         if lvl == 0:
-            # xconv = self.apn_map_scale_01(xconv)
-            # xconv = xconv.flatten(start_dim=1)
-            # print(xconv.shape)
+            t = self.apn_regress_01(self.apn_conv_01(xconv).flatten(start_dim=1))
+            t = (t-self.shift)*self.scale
+            return t
+        else:
+            raise NotImplementedError
+
+    def apn_map_chlwise(self, xconv, lvl):
+        if lvl == 0:
+            ## channelwise pooling 
             B, C = xconv.shape[0:2]
             xconv = xconv.view(B, C, -1)
             xconv = xconv.permute(0,2,1)
             xconv = F.adaptive_avg_pool1d(xconv, 1).squeeze(2)
-            # print(xconv.shape)
-            # input()
-
-            #target concate with hw*1*1
-            if target is not None:
-                target_ = torch.FloatTensor(target.shape[0], self.num_classes).to(xconv.device)
-                target_.zero_()
-                target_.scatter_(1, target, 1)
-                xconv = torch.cat([xconv, target_], dim=-1)
-            t = self.apn_map_flatten_01(xconv)
-            # shift the sigmoid output to ( [-0.5,0.5], [-0.5,0.5], [0.4,0.8] ) 
-            t = (t-shift)*scale
-            #print(t[0,...])
+            t = self.apn_map_flatten_01(xconv.flatten(start_dim=1))
+            t = (t-self.shift)*self.scale
             return t
         else:
             raise NotImplementedError
@@ -190,36 +194,45 @@ class RACNN(nn.Module):
         if train_config == 1:
             self.freeze_network(self.base)
             self.freeze_network(self.base1)
+            self.freeze_network(self.base2)
             self.freeze_network(self.conv_scale_0)
             self.freeze_network(self.conv_scale_1)
+            self.freeze_network(self.conv_scale_2)
             self.freeze_network(self.classifier_0)
             self.freeze_network(self.classifier_1)
+            self.freeze_network(self.classifier_2)
         else:
             self.unfreeze_network(self.base)
             self.unfreeze_network(self.base1)
+            self.unfreeze_network(self.base2)
             self.unfreeze_network(self.conv_scale_0)
             self.unfreeze_network(self.conv_scale_1)
+            self.unfreeze_network(self.conv_scale_2)
             self.unfreeze_network(self.classifier_0)
             self.unfreeze_network(self.classifier_1)
-            self.unfreeze_network(self.apn_scale_01)
+            self.unfreeze_network(self.classifier_2)
+            # self.unfreeze_network(self.apn_conv_01)
+            # self.unfreeze_network(self.apn_regress_01)
+            self.unfreeze_network(self.apn_map_flatten_01)
 
-        ## classification scale 1
+
+        ### Scale 0
         out_0, f_gap_0, f_conv0 = self.classification(x, lvl=0)
         
-        # ## zoom in
-        # # t0 = self.apn(f_gap_0, lvl=0) ## [B, 3]
-        if target is None:
-            target = torch.argmax(out_0, dim=-1).unsqueeze(1) ## [B, 1]
-
-        t0 = self.apn_map(f_conv0, target, lvl=0) ## [B, 3]
-        grid = self.grid_sampler(t0) ## [B, H, W, 2]  
-                                     ##transition of each pixel
-        # x origin image, x1 after zoom in                             
-        x1 = F.grid_sample(x, grid, align_corners=False, padding_mode='reflection') ## [B, 3, H, W] sampled using grid parameters
-        ## classification scale 2
+        ### Scale 1
+        # t0 = self.apn_map(f_conv0, lvl=0) ## [B, 3]
+        t0 = self.apn_map_chlwise(f_conv0, lvl=0) ## [B, 3]
+        grid = self.grid_sampler(t0) ## [B, H, W, 2]
+        x1 = F.grid_sample(x, grid, align_corners=False, padding_mode='border') ## [B, 3, H, W] sampled using grid parameters
         out_1, f_gap_1, f_conv1 = self.classification(x1, lvl=1)
 
-        return out_0, out_1, t0, f_gap_1
+        ### Scale 2
+        t1 = self.apn_map_chlwise(f_conv1, lvl=0) ## [B, 3]
+        grid = self.grid_sampler(t1) ## [B, H, W, 2]
+        x2 = F.grid_sample(x1, grid, align_corners=False, padding_mode='border') ## [B, 3, H, W] sampled using grid parameters
+        out_2, f_gap_2, f_conv2 = self.classification(x2, lvl=2)
+
+        return [out_0, out_1, out_2], [t0, t1]
 
     def freeze_network(self, module):
         for p in module.parameters():
