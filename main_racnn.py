@@ -46,16 +46,15 @@ def main(config):
     ## dataset for 6 classes
 
     train_dataset = ImageDataset(
+        '/userhome/30/jrwang/3Ctrain/images/train_image_list_sorted.txt', 
+        '/userhome/30/jrwang/3Ctrain/images/train_image_label_sorted.txt', 
+        is_training=True, temporal_coherence=temporal)
 
-        'data/seq_data/3Ctrain/train_image_list_sorted_3.txt', 
-        'data/seq_data/3Ctrain/train_image_label_sorted_3.txt', 
-        is_training=True, temporal_coherence=temporal_coherence)
-    config['temporal'] = temporal_coherence
 
 
     test_dataset = ImageDataset(
-        'data/seq_data/test/test_image_list_sorted.txt', 
-        'data/seq_data/test/test_image_label_sorted.txt', 
+        '/userhome/30/jrwang/test/images/test_image_list_sorted.txt', 
+        '/userhome/30/jrwang/test/images/test_image_label_sorted.txt', 
         is_training=False)
 
     ## network

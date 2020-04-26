@@ -53,6 +53,7 @@ class TCLoss(nn.Module):
 
     def PairwiseRankingLoss(self, prob_0, prob_1, margin):
         loss = prob_0 - prob_1 + margin
+        # print("prob0 .shape",prob_0.shape )
         return torch.clamp(loss, min=0.0)
    
    

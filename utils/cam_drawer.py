@@ -95,9 +95,9 @@ def image_sampler(image, theta, out_w=256, out_h=256):
     
 def camforCount(weight_softmax, feature, img_path, theta=None):
     # render the CAM and output
-    img = cv2.imread(img_path[0], -1) ## [H, W, C]
-    print("feature.shape ,", feature.shape)
-    print("weight_softmax.shape ,", weight_softmax.shape)
+    img = cv2.imread(img_path, -1) ## [H, W, C]
+    # print("feature.shape ,", feature.shape)
+    # print("weight_softmax.shape ,", weight_softmax.shape)
     # for batch_inner_id,  target in enumerate()
     if theta is not None:
         img_tensor = torch.from_numpy(img).type(torch.FloatTensor).unsqueeze(0)
@@ -105,18 +105,22 @@ def camforCount(weight_softmax, feature, img_path, theta=None):
         img_tensor = image_sampler(img_tensor, theta)
         img = np.asarray(img_tensor.permute(0,2,3,1).squeeze(0)) ## [B, H, W, C] --> [H, W, C]
     height, width, _ = img.shape
-    CAM = returnCAM(feature, weight_softmax)
+    CAM = returnCAM(feature, weight_softmax,len(feature.shape)==3)
     CAM = cv2.resize(CAM, (width, height))
     CAM = CAM/255
-    count = np.sum(CAM[0:height, 0:width])
+    count = np.sum(CAM[0:height, 0:width])/(width*height)
+
     return count
 
 
 # generate class activation mapping for the top1 prediction
-def returnCAM(feature_conv, weight_softmax):
+def returnCAM(feature_conv, weight_softmax, feature_cov_is_3=False):
     # generate the class activation maps upsample to 256x256
     # size_upsample = (256, 256)
-    bz, nc, h, w = feature_conv.shape
+    if feature_cov_is_3:
+        nc, h, w = feature_conv.shape
+    else:
+        bz, nc, h, w = feature_conv.shape
     # nc, h, w = feature_conv.shape
 
     # print(weight_softmax.shape)
