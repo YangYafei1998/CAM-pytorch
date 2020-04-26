@@ -10,7 +10,7 @@
     "ckpt_save_period": 5,
     "learning_rate": 0.0001,
     "weight_decay": 0.0,
-    "temp_consistency_weight": 0.1,
+    "tc_weight": 1.0,
     "pretrained":true,
     "interleave": 5,
     "architecture": "RACNN"

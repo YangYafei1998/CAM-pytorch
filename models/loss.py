@@ -15,7 +15,7 @@ class TCLoss(nn.Module):
         self.b = self.b/torch.sum(self.b).view(1)
         
         self.max_ent = self.b*torch. log(self.b)
-        self.max_ent = -1.0*torch.sum(self.max_ent.cuda(), dim=1)
+        self.max_ent = -1.0*torch.sum(self.max_ent, dim=1)
         print('max entropy: {}'.format(self.max_ent))
     
     """
@@ -68,6 +68,39 @@ class TCLoss(nn.Module):
         corr = torch.matmul(features_, features_.t())
         corr = F.softmax(corr, dim=-1)
         return F.cross_entropy(corr, targets)
+
+
+    def BatchContrastiveLoss(self, temp_features):
+        ## [B, 3, C]
+        assert len(temp_features.shape) == 3
+        cur  = temp_features[:, 0]
+        prev = temp_features[:, 1]
+        next = temp_features[:, 2]
+        
+        # t_loss_prev = nn.functional.mse_loss(cur, prev, reduction='none')
+        # t_loss_next = nn.functional.mse_loss(cur, next, reduction='none')
+        # cur_prev_next_dist = t_loss_next.sum(dim=-1) + t_loss_prev.sum(dim=-1)
+        # cur_prev_next_dist = torch.sum((cur-prev)**2, dim=-1).sqrt() + torch.sum((cur-next)**2, dim=-1).sqrt()
+
+        # cur_0 = cur.clone().unsqueeze(0)
+        # cur_1 = cur.clone().unsqueeze(1)
+        # diff = cur_0 - cur_1
+        # batch_dist = torch.sum(torch.pow(diff), dim=-1)
+        # batch_dist_sum = batch_dist.sqrt().sum(dim=-1) ## detach grad of the deliminator
+
+        ## Positive sample
+        dotprod_prev = torch.sum(cur*prev, dim=-1) ## inner product of each feature in cur to that in prev
+        dotprod_next = torch.sum(cur*next, dim=-1) ## inner product of each feature in cur to that in prev
+        cur_prev_next_similarity = dotprod_next + dotprod_prev
+        ## Negative samples
+        batch_similarity = torch.sum(torch.matmul(cur,cur.t()), dim=-1) ## sum of each cur to all curs
+
+        # print(cur_prev_next_similarity)
+        # print(batch_similarity)
+        return (-1.0*cur_prev_next_similarity/batch_similarity).sum()
+
+
+
 
     # def PerLocClassLoss(self, inputs, targets):
     #     # size of input

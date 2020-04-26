@@ -108,7 +108,7 @@ class RACNN_Trainer():
         self.max_epoch = config['max_epoch']
         self.time_consistency = config.get('temporal', False) ## default is false
         if self.time_consistency:
-            self.tc_weight = config['temp_consistency_weight']
+            self.tc_weight = config['tc_weight']
 
         self.save_period = config['ckpt_save_period']
         batch_size = config['batch_size']
@@ -117,11 +117,11 @@ class RACNN_Trainer():
 
         if config['disable_workers']:
             self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0) 
-            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
+            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=0) 
             self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
         else:
             self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4) 
-            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4) 
+            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=4) 
             self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4) 
 
         self.augmenter = DataAugmentation()
@@ -264,6 +264,21 @@ class RACNN_Trainer():
         accuracy_1 = AverageMeter()
         accuracy_2 = AverageMeter()
 
+        ## hook gap feature
+        feat_hooked = []
+        def hook_feature(module, input, output):
+            # print('hook_gap_feature')
+            feat_hooked.append(output) 
+            # print(output.shape)
+            # print("output: ", output[0])
+            # print()
+        # self.model.conv_scale_0[-2].register_forward_hook(hook_conv_feature)
+        self.model.gap.register_forward_hook(hook_feature)
+
+        ## hook gap feature
+
+
+
         for batch_idx, batch in tqdm.tqdm(
             enumerate(self.trainloader), 
             total=len(self.trainloader),
@@ -320,15 +335,25 @@ class RACNN_Trainer():
                 ### Temporal coherence
                 if self.time_consistency:
                     temp_loss = 0.0
-                    # conf_0 = self.criterion.ComputeEntropyAsWeight(out_0).view(B, 3)
-                    # conf_1 = self.criterion.ComputeEntropyAsWeight(out_1).view(B, 3)
-                    ## [0::3] staring from 0, get every another three elements
-                    temp_loss_0 = self.criterion.TemporalConsistencyLoss(out_0[0::3], out_0[1::3], out_0[2::3], reduction='none')
-                    temp_loss_1 = self.criterion.TemporalConsistencyLoss(out_1[0::3], out_1[1::3], out_1[2::3], reduction='none')
-                    temp_loss_2 = self.criterion.TemporalConsistencyLoss(out_2[0::3], out_2[1::3], out_2[2::3], reduction='none')
-                    # temp_loss += (temp_loss_0*(conf_0**2) + (1-conf_0)**2).sum()
-                    # temp_loss += (temp_loss_1*(conf_1**2) + (1-conf_1)**2).sum()
-                    temp_loss = temp_loss_0.sum() + temp_loss_1.sum() + temp_loss_2.sum()
+                    # # conf_0 = self.criterion.ComputeEntropyAsWeight(out_0).view(B, 3)
+                    # # conf_1 = self.criterion.ComputeEntropyAsWeight(out_1).view(B, 3)
+                    # ## [0::3] staring from 0, get every another three elements
+                    # temp_loss_0 = self.criterion.TemporalConsistencyLoss(out_0[0::3], out_0[1::3], out_0[2::3], reduction='none')
+                    # temp_loss_1 = self.criterion.TemporalConsistencyLoss(out_1[0::3], out_1[1::3], out_1[2::3], reduction='none')
+                    # temp_loss_2 = self.criterion.TemporalConsistencyLoss(out_2[0::3], out_2[1::3], out_2[2::3], reduction='none')
+                    # # temp_loss += (temp_loss_0*(conf_0**2) + (1-conf_0)**2).sum()
+                    # # temp_loss += (temp_loss_1*(conf_1**2) + (1-conf_1)**2).sum()
+                    # temp_loss = temp_loss_0.sum() + temp_loss_1.sum() + temp_loss_2.sum()
+
+                    ### NEW TEMPORAL COHERENCE LOSS
+                    # print(feat_hooked[0].shape)
+                    feat_gap_0 = feat_hooked[0].squeeze().view(B, 3, -1)
+                    temp_loss_0 = self.criterion.BatchContrastiveLoss(feat_gap_0)
+                    print(temp_loss_0)
+                    temp_loss += temp_loss_0
+                    feat_hooked.clear() ## clear for next batch
+                    # input()
+
 
                 loss = 0.0
                 if loss_config == 0: ##'classification'
