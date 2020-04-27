@@ -244,11 +244,7 @@ class RACNN_Trainer():
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
             
-<<<<<<< HEAD
-            ## testing
-=======
             ## testing            
->>>>>>> yanglei
             self.logger.info(f"Validation:")
             log = self.test_one_epoch(epoch)
             self.logger.info(log)
@@ -271,17 +267,6 @@ class RACNN_Trainer():
         accuracy_1 = AverageMeter()
         accuracy_2 = AverageMeter()
 
-<<<<<<< HEAD
-        ## hook gap feature
-        # feat_hooked = []
-        # def hook_feature(module, input, output):
-            # print('hook_gap_feature')
-            # feat_hooked.append(output) 
-            # print(output.shape)
-            # print("output: ", output[0,0:10])
-            # print()
-        # self.model.conv_scale_0[-2].register_forward_hook(hook_conv_feature)
-=======
         # ## hook gap feature
         # feat_hooked = []
         # def hook_feature(module, input, output):
@@ -291,7 +276,6 @@ class RACNN_Trainer():
         #     # print("output: ", output[0,0:10])
         #     # print()
         # # self.model.conv_scale_0[-2].register_forward_hook(hook_conv_feature)
->>>>>>> yanglei
         # h0 = self.model.gap.register_forward_hook(hook_feature)
 
         for batch_idx, batch in tqdm.tqdm(
@@ -361,21 +345,6 @@ class RACNN_Trainer():
                 ### Temporal coherence
                 temp_loss = 0.0
                 if loss_config == 0 and self.time_consistency:
-<<<<<<< HEAD
-                    # # conf_0 = self.criterion.ComputeEntropyAsWeight(out_0).view(B, 3)
-                    # # conf_1 = self.criterion.ComputeEntropyAsWeight(out_1).view(B, 3)
-                    # ## [0::3] staring from 0, get every another three elements
-                    # temp_loss_0 = self.criterion.TemporalConsistencyLoss(out_0[0::3], out_0[1::3], out_0[2::3], reduction='none')
-                    # temp_loss_1 = self.criterion.TemporalConsistencyLoss(out_1[0::3], out_1[1::3], out_1[2::3], reduction='none')
-                    # temp_loss_2 = self.criterion.TemporalConsistencyLoss(out_2[0::3], out_2[1::3], out_2[2::3], reduction='none')
-                    # # temp_loss += (temp_loss_0*(conf_0**2) + (1-conf_0)**2).sum()
-                    # # temp_loss += (temp_loss_1*(conf_1**2) + (1-conf_1)**2).sum()
-                    # temp_loss = temp_loss_0.sum() + temp_loss_1.sum() + temp_loss_2.sum()
-
-                    ## NEW TEMPORAL COHERENCE LOSS
-                    temp_loss += self.criterion.BatchContrastiveLoss(feat_hooked[0].squeeze().view(B, 3, -1))
-                    temp_loss_meter.update(temp_loss.item(), 1)
-=======
                     # conf_0 = self.criterion.ComputeEntropyAsWeight(out_0).view(B, 3)
                     # conf_1 = self.criterion.ComputeEntropyAsWeight(out_1).view(B, 3)
                     ## [0::3] staring from 0, get every another three elements
@@ -389,7 +358,6 @@ class RACNN_Trainer():
                     # ## NEW TEMPORAL COHERENCE LOSS
                     # temp_loss += self.criterion.BatchContrastiveLoss(feat_hooked[0].squeeze().view(B, 3, -1))
                     # temp_loss_meter.update(temp_loss.item(), 1)
->>>>>>> yanglei
                     # feat_hooked.clear() ## clear for next batch
                     
                 loss = 0.0
