@@ -108,7 +108,7 @@ class RACNN_Trainer():
         self.max_epoch = config['max_epoch']
         self.time_consistency = config.get('temporal', False) ## default is false
         if self.time_consistency:
-            self.tc_weight = config['temp_consistency_weight']
+            self.tc_weight = config['tc_weight']
 
         self.save_period = config['ckpt_save_period']
         batch_size = config['batch_size']
@@ -116,12 +116,14 @@ class RACNN_Trainer():
         self.mini_train = config.get('mini_train', False)
 
         if config['disable_workers']:
-            self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0) 
-            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
+            self.trainloader = torch.utils.data.DataLoader(
+                train_dataset, batch_size=batch_size, shuffle=True, num_workers=0, pin_meory=True) 
+            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=0) 
             self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
         else:
-            self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4) 
-            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
+            self.trainloader = torch.utils.data.DataLoader(
+                train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True) 
+            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=4) 
             self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4) 
 
         self.augmenter = DataAugmentation()
@@ -241,11 +243,11 @@ class RACNN_Trainer():
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
             
-            ## testing
-            self.logger.info(f"Validation:")
-            log = self.test_one_epoch(epoch)
-            self.logger.info(log)
-            self.logger.info("  \n")
+            # ## testing
+            # self.logger.info(f"Validation:")
+            # log = self.test_one_epoch(epoch)
+            # self.logger.info(log)
+            # self.logger.info("  \n")
 
         print("Finished")
 
@@ -264,6 +266,17 @@ class RACNN_Trainer():
         accuracy_1 = AverageMeter()
         accuracy_2 = AverageMeter()
 
+        ## hook gap feature
+        feat_hooked = []
+        def hook_feature(module, input, output):
+            # print('hook_gap_feature')
+            feat_hooked.append(output) 
+            # print(output.shape)
+            # print("output: ", output[0,0:10])
+            # print()
+        # self.model.conv_scale_0[-2].register_forward_hook(hook_conv_feature)
+        h0 = self.model.gap.register_forward_hook(hook_feature)
+
         for batch_idx, batch in tqdm.tqdm(
             enumerate(self.trainloader), 
             total=len(self.trainloader),
@@ -276,10 +289,10 @@ class RACNN_Trainer():
 
             if self.mini_train and batch_idx == 5: break
 
-            ## data augmentation via imgaug
-            if self.trainloader.dataset.augmentation:
-                data = self.augmenter(data)
-                # print(data)
+            # ## data augmentation via imgaug
+            # if self.trainloader.dataset.augmentation:
+            #     data = self.augmenter(data)
+            #     # print(data)
             
             ## 
             data, target = data.to(self.device), target.to(self.device)
@@ -298,65 +311,81 @@ class RACNN_Trainer():
                 out_list, t_list = self.model(data, target.unsqueeze(1), loss_config) ## [B, NumClasses]
                 out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
                 t_01, t_12 = t_list[0], t_list[1]
-
+                B_out = out_0.shape[0] ## if temporal_coherence, B_out = B*3
 
                 ### Classification loss
-                cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
-                cls_loss_1, preds_1 = self.criterion.ImgLvlClassLoss(out_1, target, reduction='none')
-                cls_loss_2, preds_2 = self.criterion.ImgLvlClassLoss(out_2, target, reduction='none')
-                cls_loss = cls_loss_0.sum() + cls_loss_1.sum() + cls_loss_2.sum()
-                
+                cls_loss = 0.0
+                if loss_config == 0:
+                    cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
+                    cls_loss_1, preds_1 = self.criterion.ImgLvlClassLoss(out_1, target, reduction='none')
+                    cls_loss_2, preds_2 = self.criterion.ImgLvlClassLoss(out_2, target, reduction='none')
+                    cls_loss += cls_loss_0.sum() + cls_loss_1.sum() + cls_loss_2.sum()
+                    cls_loss_meter.update(cls_loss.item(), 1)
+
+            
                 ### Ranking loss
-                B_out = out_0.shape[0] ## if temporal_coherence, B_out = B*3
-                probs_0 = F.softmax(out_0, dim=-1)
-                probs_1 = F.softmax(out_1, dim=-1)
-                probs_2 = F.softmax(out_1, dim=-1)
-                gt_probs_0 = probs_0[list(range(B_out)), target]
-                gt_probs_1 = probs_1[list(range(B_out)), target]
-                gt_probs_2 = probs_2[list(range(B_out)), target]
-                rank_loss_1 = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
-                rank_loss_2 = self.criterion.PairwiseRankingLoss(gt_probs_1, gt_probs_2, margin=self.margin)
-                rank_loss = rank_loss_1.sum() + rank_loss_2.sum()
+                rank_loss = 0.0
+                if loss_config == 1:
+                    probs_0 = F.softmax(out_0, dim=-1)
+                    probs_1 = F.softmax(out_1, dim=-1)
+                    probs_2 = F.softmax(out_1, dim=-1)
+                    gt_probs_0 = probs_0[list(range(B_out)), target]
+                    gt_probs_1 = probs_1[list(range(B_out)), target]
+                    gt_probs_2 = probs_2[list(range(B_out)), target]
+                    # gt_probs_0 = out_0[list(range(B_out)), target]
+                    # gt_probs_1 = out_1[list(range(B_out)), target]
+                    # gt_probs_2 = out_2[list(range(B_out)), target]
+                    rank_loss_1 = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
+                    rank_loss_2 = self.criterion.PairwiseRankingLoss(gt_probs_1, gt_probs_2, margin=self.margin)
+                    rank_loss += rank_loss_1.sum() + rank_loss_2.sum()
+                    rank_loss_meter.update(rank_loss.item(), 1)
+
 
                 ### Temporal coherence
-                if self.time_consistency:
-                    temp_loss = 0.0
-                    # conf_0 = self.criterion.ComputeEntropyAsWeight(out_0).view(B, 3)
-                    # conf_1 = self.criterion.ComputeEntropyAsWeight(out_1).view(B, 3)
-                    ## [0::3] staring from 0, get every another three elements
-                    temp_loss_0 = self.criterion.TemporalConsistencyLoss(out_0[0::3], out_0[1::3], out_0[2::3], reduction='none')
-                    temp_loss_1 = self.criterion.TemporalConsistencyLoss(out_1[0::3], out_1[1::3], out_1[2::3], reduction='none')
-                    temp_loss_2 = self.criterion.TemporalConsistencyLoss(out_2[0::3], out_2[1::3], out_2[2::3], reduction='none')
-                    # temp_loss += (temp_loss_0*(conf_0**2) + (1-conf_0)**2).sum()
-                    # temp_loss += (temp_loss_1*(conf_1**2) + (1-conf_1)**2).sum()
-                    temp_loss = temp_loss_0.sum() + temp_loss_1.sum() + temp_loss_2.sum()
+                temp_loss = 0.0
+                if loss_config == 0 and self.time_consistency:
+                    # # conf_0 = self.criterion.ComputeEntropyAsWeight(out_0).view(B, 3)
+                    # # conf_1 = self.criterion.ComputeEntropyAsWeight(out_1).view(B, 3)
+                    # ## [0::3] staring from 0, get every another three elements
+                    # temp_loss_0 = self.criterion.TemporalConsistencyLoss(out_0[0::3], out_0[1::3], out_0[2::3], reduction='none')
+                    # temp_loss_1 = self.criterion.TemporalConsistencyLoss(out_1[0::3], out_1[1::3], out_1[2::3], reduction='none')
+                    # temp_loss_2 = self.criterion.TemporalConsistencyLoss(out_2[0::3], out_2[1::3], out_2[2::3], reduction='none')
+                    # # temp_loss += (temp_loss_0*(conf_0**2) + (1-conf_0)**2).sum()
+                    # # temp_loss += (temp_loss_1*(conf_1**2) + (1-conf_1)**2).sum()
+                    # temp_loss = temp_loss_0.sum() + temp_loss_1.sum() + temp_loss_2.sum()
 
+                    ## NEW TEMPORAL COHERENCE LOSS
+                    temp_loss += self.criterion.BatchContrastiveLoss(feat_hooked[0].squeeze().view(B, 3, -1))
+                    temp_loss_meter.update(temp_loss.item(), 1)
+                    feat_hooked.clear() ## clear for next batch
+                    
                 loss = 0.0
                 if loss_config == 0: ##'classification'
                     loss += cls_loss
+                    if self.time_consistency:
+                        loss += self.tc_weight*temp_loss
                 elif loss_config == 1: ##'apn'
                     loss += rank_loss
-                else: ##'whole'
-                    loss += (rank_loss + cls_loss + info_loss)
                 
-                if self.time_consistency:
-                    loss += self.tc_weight*temp_loss
-
                 loss.backward()
                 self.optimizer.step()
 
                 ## meter update
-                loss_meter.update(loss, 1)
-                cls_loss_meter.update(cls_loss, 1)
-                rank_loss_meter.update(rank_loss, 1)
-                if self.time_consistency:
-                    temp_loss_meter.update(temp_loss, 1)
+                loss_meter.update(loss.item(), 1)                
+                
                 # info_loss_meter.update(info_loss, 1)
                 # calculate accuracy
-                accuracy_0.update(compute_acc(out_0, target, B_out), 1)
-                accuracy_1.update(compute_acc(out_1, target, B_out), 1)
-                accuracy_2.update(compute_acc(out_2, target, B_out), 1)
-
+                accuracy_0.update(compute_acc(out_0.detach(), target, B_out), 1)
+                accuracy_1.update(compute_acc(out_1.detach(), target, B_out), 1)
+                accuracy_2.update(compute_acc(out_2.detach(), target, B_out), 1)
+                
+                del out_0
+                del out_1
+                del out_2
+                del loss
+                torch.cuda.empty_cache()
+        
+        h0.remove()
 
         return {
             'cls_loss': cls_loss_meter.avg, 

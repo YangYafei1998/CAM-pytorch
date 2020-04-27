@@ -12,6 +12,7 @@
     "weight_decay": 0.0,
     "temp_consistency_weight": 0.1,
     "pretrained": true,
+    "tc_weight": 1.0,
     "interleave": 5,
     "architecture": "RACNN",
     "bbox_bar": 0.7
