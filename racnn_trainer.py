@@ -93,14 +93,10 @@ class RACNN_Trainer():
         self.draw_cams = True
 
         self.model = model.to(self.device)
-        if config['resume'] is not None:
-            pass
-            ## resume the network
-            self._resume_checkpoint(config['resume'])
-
         self.criterion = criterion
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
+        self.start_epoch = 0
 
         ## Hyper-parameters
         self.interleaving_step = config['interleave']
@@ -117,17 +113,21 @@ class RACNN_Trainer():
 
         if config['disable_workers']:
             self.trainloader = torch.utils.data.DataLoader(
-                train_dataset, batch_size=batch_size, shuffle=True, num_workers=0, pin_meory=True) 
+                train_dataset, batch_size=batch_size, shuffle=True, num_workers=0) 
             self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=0) 
             self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
         else:
             self.trainloader = torch.utils.data.DataLoader(
-                train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True) 
+                train_dataset, batch_size=batch_size, shuffle=True, num_workers=4) 
             self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=4) 
             self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4) 
 
-        self.augmenter = DataAugmentation()
+        if config['resume'] is not None:
+            pass
+            ## resume the network
+            self._resume_checkpoint(config['resume'])
 
+        self.augmenter = DataAugmentation()
 
 
     ## save checkpoint including model and other relevant information
@@ -170,6 +170,7 @@ class RACNN_Trainer():
 
         # load architecture params from checkpoint.
         self.model.load_state_dict(checkpoint['state_dict'], strict=False)
+        print("CKPT KEYS: ", checkpoint.keys())
         # if checkpoint['config']['model'] != self.config['model']:
         #     msg = ("Warning: Architecture configuration given in config file is"
         #            " different from that of checkpoint."
@@ -178,20 +179,21 @@ class RACNN_Trainer():
         # else:
         #     self.model.load_state_dict(checkpoint['state_dict'], strict=False)
 
-        # if not load_pretrain:
-        #     # uncomment this line if you want to use the resumed optimizer
-        #     # load optimizer state from checkpoint only when optimizer type is not changed.
-        #     ckpt_opt_type = checkpoint['config']['optimizer']['type']
-        #     if ckpt_opt_type != self.config['optimizer']['type']:
-        #         msg = ("Warning: Optimizer type given in config file is different from"
-        #             "that of checkpoint.  Optimizer parameters not being resumed.")
-        #         self.logger.warning(msg)
-        #     else:
-        #         self.optimizer.load_state_dict(checkpoint['optimizer'])
+        if not load_pretrain:
+            self.optimizer.load_state_dict(checkpoint['optimizer'])
+            # uncomment this line if you want to use the resumed optimizer
+            # load optimizer state from checkpoint only when optimizer type is not changed.
+            # ckpt_opt_type = checkpoint['config']['optimizer']['type']
+            # if ckpt_opt_type != self.config['optimizer']['type']:
+            #     msg = ("Warning: Optimizer type given in config file is different from"
+            #         "that of checkpoint.  Optimizer parameters not being resumed.")
+            #     self.logger.warning(msg)
+            # else:
+            #     self.optimizer.load_state_dict(checkpoint['optimizer'])
 
-        # # self.logger = checkpoint['logger']
-        # msg = "Checkpoint '{}' (epoch {}) loaded"
-        # self.logger.info(msg .format(resume_path, self.start_epoch))
+        # self.logger = checkpoint['logger']
+        msg = "Checkpoint '{}' (epoch {}) loaded"
+        self.logger.info(msg .format(resume_path, self.start_epoch))
         if not load_pretrain:
             print("load to resume")
         else:
@@ -266,15 +268,15 @@ class RACNN_Trainer():
         accuracy_1 = AverageMeter()
         accuracy_2 = AverageMeter()
 
-        ## hook gap feature
-        feat_hooked = []
-        def hook_feature(module, input, output):
-            # print('hook_gap_feature')
-            feat_hooked.append(output) 
-            # print(output.shape)
-            # print("output: ", output[0,0:10])
-            # print()
-        # self.model.conv_scale_0[-2].register_forward_hook(hook_conv_feature)
+        # ## hook gap feature
+        # feat_hooked = []
+        # def hook_feature(module, input, output):
+        #     # print('hook_gap_feature')
+        #     feat_hooked.append(output) 
+        #     # print(output.shape)
+        #     # print("output: ", output[0,0:10])
+        #     # print()
+        # # self.model.conv_scale_0[-2].register_forward_hook(hook_conv_feature)
         # h0 = self.model.gap.register_forward_hook(hook_feature)
 
         for batch_idx, batch in tqdm.tqdm(
