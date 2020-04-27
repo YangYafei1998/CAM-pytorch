@@ -80,7 +80,7 @@ def main(config):
 
     ## optimizer
     optimizer = torch.optim.SGD(net.parameters(), lr=LEARNING_RATE, momentum=0.9, weight_decay=WEIGHT_DECAY)
-    scheduler  = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 25], gamma=0.1)
+    scheduler  = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[25, 55], gamma=0.1)
     
     ## loss
     criterion = TCLoss(num_classes=3)

@@ -162,7 +162,6 @@ class RACNN_Trainer():
     def _resume_checkpoint(self, resume_path, load_pretrain=False):
         self.logger.info("Loading checkpoint: {} ...".format(resume_path))
         checkpoint = torch.load(resume_path)
-        print(checkpoint['config'])
         if not load_pretrain:
             self.start_epoch = checkpoint['epoch'] + 1
         
@@ -199,9 +198,9 @@ class RACNN_Trainer():
 
     ## pre-train session
     def pretrain(self):
-        # for _ in range(5):
-        #     self.pretrain_classification()
-        # self._save_checkpoint(0, pretrain_ckp=True)
+        for _ in range(5):
+            self.pretrain_classification()
+        self._save_checkpoint(0, pretrain_ckp=True)
         for _ in range(3):
             self.pretrain_apn()
         self._save_checkpoint(1, pretrain_ckp=True)
@@ -267,15 +266,15 @@ class RACNN_Trainer():
         accuracy_2 = AverageMeter()
 
         ## hook gap feature
-        feat_hooked = []
-        def hook_feature(module, input, output):
+        # feat_hooked = []
+        # def hook_feature(module, input, output):
             # print('hook_gap_feature')
-            feat_hooked.append(output) 
+            # feat_hooked.append(output) 
             # print(output.shape)
             # print("output: ", output[0,0:10])
             # print()
         # self.model.conv_scale_0[-2].register_forward_hook(hook_conv_feature)
-        h0 = self.model.gap.register_forward_hook(hook_feature)
+        # h0 = self.model.gap.register_forward_hook(hook_feature)
 
         for batch_idx, batch in tqdm.tqdm(
             enumerate(self.trainloader), 
@@ -357,7 +356,7 @@ class RACNN_Trainer():
                     ## NEW TEMPORAL COHERENCE LOSS
                     temp_loss += self.criterion.BatchContrastiveLoss(feat_hooked[0].squeeze().view(B, 3, -1))
                     temp_loss_meter.update(temp_loss.item(), 1)
-                    feat_hooked.clear() ## clear for next batch
+                    # feat_hooked.clear() ## clear for next batch
                     
                 loss = 0.0
                 if loss_config == 0: ##'classification'
@@ -385,7 +384,7 @@ class RACNN_Trainer():
                 del loss
                 torch.cuda.empty_cache()
         
-        h0.remove()
+        # h0.remove()
 
         return {
             'cls_loss': cls_loss_meter.avg, 
