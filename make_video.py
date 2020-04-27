@@ -23,14 +23,14 @@ def clear_folder(pathIn, exts=None):
 def draw_fig(path):
     infile = path+'/info.log'
 
-    cls_loss =[nan]*60
-    rank_loss = [nan]*60
+    cls_loss =[nan]*70
+    rank_loss = [nan]*70
 
-    cls_loss0 = [None]*60
-    cls_loss1 = [None]*60
-    cls_loss2 = [None]*60
-    rank_loss0 = [None]*60
-    rank_loss1 = [None]*60
+    cls_loss0 = [None]*70
+    cls_loss1 = [None]*70
+    cls_loss2 = [None]*70
+    rank_loss0 = [None]*70
+    rank_loss1 = [None]*70
 
     with open(infile) as f:
         f = f.readlines()

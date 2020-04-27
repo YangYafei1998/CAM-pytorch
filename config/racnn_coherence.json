@@ -1,6 +1,6 @@
 {
     "device": 0,
-    "max_epoch": 60,
+    "max_epoch": 70,
     "margin": 0.05,
     "seed": 0,
     "disable_workers": false,

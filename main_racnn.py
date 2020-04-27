@@ -48,8 +48,8 @@ def main(config):
     train_dataset = ImageDataset(
         # '/userhome/30/jrwang/3Ctrain/images/train_image_list_sorted_6.txt', 
         # '/userhome/30/jrwang/3Ctrain/images/train_image_label_sorted_6.txt', 
-        '/userhome/30/jrwang/6Ctrain/images/train_image_list_sorted_6.txt', 
-        '/userhome/30/jrwang/6Ctrain/images/train_image_label_sorted_6.txt', 
+        '/userhome/30/jrwang/debug6Ctrain/images/train_image_list_sorted_6.txt', 
+        '/userhome/30/jrwang/debug6Ctrain/images/train_image_label_sorted_6.txt', 
         is_training=True, temporal_coherence=temporal)
 
 

@@ -129,7 +129,7 @@ class RACNN_Trainer():
 
 
     ## save checkpoint including model and other relevant information
-    def _save_checkpoint(self, epoch, save_best=False, pretrain_ckp=False):
+    def _save_checkpoint(self, epoch, save_best=False, pretrain_ckp=False, name='train'):
         arch = type(self.model).__name__
         state = {
             'model': arch,
@@ -141,7 +141,7 @@ class RACNN_Trainer():
         if pretrain_ckp:
             filename = os.path.join(
                 self.ckpt_folder,
-                'pretrain-checkpoint-e{}.pth'.format(epoch)
+                f'pretrain-checkpoint-{name}-e{epoch}.pth'
             )
         else:
             filename = os.path.join(
@@ -198,12 +198,12 @@ class RACNN_Trainer():
     ## pre-train session
     def pretrain(self):
         # for _ in range(5):
-        for _ in range(5):
+        for i in range(7):
             self.pretrain_classification()
-        self._save_checkpoint(0, pretrain_ckp=True)
-        for _ in range(3):
+            self._save_checkpoint(i, pretrain_ckp=True, name='pre_cls')
+        for i in range(4):
             self.pretrain_apn()
-        self._save_checkpoint(1, pretrain_ckp=True)
+            self._save_checkpoint(i, pretrain_ckp=True, name='pre_apn')
         print("Pre-train Finished")
 
 
@@ -345,8 +345,11 @@ class RACNN_Trainer():
                 
                 rank_loss_1 = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
                 rank_loss_2 = self.criterion.PairwiseRankingLoss(gt_probs_1, gt_probs_2, margin=self.margin)
+                print("rank_loss_1 is,",rank_loss_1)
+                print("rank_loss_2 is,",rank_loss_2)
+
                 rank_loss = rank_loss_1.sum() + rank_loss_2.sum()
-                
+                print("rank_loss is, ", rank_loss)
                 # img_path = self.trainloader.dataset.get_fname(idx)
                 # rank_loss_1=0.0
                 # rank_loss_2=0.0
@@ -356,7 +359,7 @@ class RACNN_Trainer():
                 #     count2 = camforCount(weight_softmax_2_gt[batch_inner_id], f_conv_2[-1][batch_inner_id], img_path[0])
                 #     rank_loss_1 += self.criterion.RankingLossDivideByCount(gt_probs_0, count0, gt_probs_1, count1, margin=self.margin)
                 #     rank_loss_2 += self.criterion.RankingLossDivideByCount(gt_probs_1, count1, gt_probs_2, count2, margin=self.margin)                
-                # rank_loss = rank_loss_1 + rank_loss_2
+                # rank_loss = rank_loss_1.sum() + rank_loss_2.sum()
 
 
 
@@ -393,6 +396,11 @@ class RACNN_Trainer():
                 # print("cls_loss.shape, ",cls_loss.shape)
                 # print("rank_loss_meter.shape, ",rank_loss_meter.shape)
                 # print("rank_loss.shape, ",rank_loss.shape)               
+                print("loss.shape, ",loss)
+                # print("cls_loss_meter.shape, ",cls_loss_meter)
+                print("cls_loss.shape, ",cls_loss)
+                # print("rank_loss_meter.shape, ",rank_loss_meter)
+                print("rank_loss.shape, ",rank_loss)                               
                 loss_meter.update(loss, 1)
                 cls_loss_meter.update(cls_loss, 1)
                 rank_loss_meter.update(rank_loss, 1)
