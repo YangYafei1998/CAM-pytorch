@@ -242,11 +242,11 @@ class RACNN_Trainer():
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
             
-            # ## testing
-            # self.logger.info(f"Validation:")
-            # log = self.test_one_epoch(epoch)
-            # self.logger.info(log)
-            # self.logger.info("  \n")
+            ## testing
+            self.logger.info(f"Validation:")
+            log = self.test_one_epoch(epoch)
+            self.logger.info(log)
+            self.logger.info("  \n")
 
         print("Finished")
 
