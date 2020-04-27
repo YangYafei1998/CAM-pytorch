@@ -93,14 +93,10 @@ class RACNN_Trainer():
         self.draw_cams = True
 
         self.model = model.to(self.device)
-        if config['resume'] is not None:
-            pass
-            ## resume the network
-            self._resume_checkpoint(config['resume'])
-
         self.criterion = criterion
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
+        self.start_epoch = 0
 
         ## Hyper-parameters
         self.interleaving_step = config['interleave']
@@ -117,17 +113,21 @@ class RACNN_Trainer():
 
         if config['disable_workers']:
             self.trainloader = torch.utils.data.DataLoader(
-                train_dataset, batch_size=batch_size, shuffle=True, num_workers=0, pin_meory=True) 
+                train_dataset, batch_size=batch_size, shuffle=True, num_workers=0) 
             self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=0) 
             self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
         else:
             self.trainloader = torch.utils.data.DataLoader(
-                train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True) 
+                train_dataset, batch_size=batch_size, shuffle=True, num_workers=4) 
             self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=4) 
             self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4) 
 
-        self.augmenter = DataAugmentation()
+        if config['resume'] is not None:
+            pass
+            ## resume the network
+            self._resume_checkpoint(config['resume'])
 
+        self.augmenter = DataAugmentation()
 
 
     ## save checkpoint including model and other relevant information
@@ -169,6 +169,7 @@ class RACNN_Trainer():
 
         # load architecture params from checkpoint.
         self.model.load_state_dict(checkpoint['state_dict'], strict=False)
+        print("CKPT KEYS: ", checkpoint.keys())
         # if checkpoint['config']['model'] != self.config['model']:
         #     msg = ("Warning: Architecture configuration given in config file is"
         #            " different from that of checkpoint."
@@ -177,20 +178,21 @@ class RACNN_Trainer():
         # else:
         #     self.model.load_state_dict(checkpoint['state_dict'], strict=False)
 
-        # if not load_pretrain:
-        #     # uncomment this line if you want to use the resumed optimizer
-        #     # load optimizer state from checkpoint only when optimizer type is not changed.
-        #     ckpt_opt_type = checkpoint['config']['optimizer']['type']
-        #     if ckpt_opt_type != self.config['optimizer']['type']:
-        #         msg = ("Warning: Optimizer type given in config file is different from"
-        #             "that of checkpoint.  Optimizer parameters not being resumed.")
-        #         self.logger.warning(msg)
-        #     else:
-        #         self.optimizer.load_state_dict(checkpoint['optimizer'])
+        if not load_pretrain:
+            self.optimizer.load_state_dict(checkpoint['optimizer'])
+            # uncomment this line if you want to use the resumed optimizer
+            # load optimizer state from checkpoint only when optimizer type is not changed.
+            # ckpt_opt_type = checkpoint['config']['optimizer']['type']
+            # if ckpt_opt_type != self.config['optimizer']['type']:
+            #     msg = ("Warning: Optimizer type given in config file is different from"
+            #         "that of checkpoint.  Optimizer parameters not being resumed.")
+            #     self.logger.warning(msg)
+            # else:
+            #     self.optimizer.load_state_dict(checkpoint['optimizer'])
 
-        # # self.logger = checkpoint['logger']
-        # msg = "Checkpoint '{}' (epoch {}) loaded"
-        # self.logger.info(msg .format(resume_path, self.start_epoch))
+        # self.logger = checkpoint['logger']
+        msg = "Checkpoint '{}' (epoch {}) loaded"
+        self.logger.info(msg .format(resume_path, self.start_epoch))
         if not load_pretrain:
             print("load to resume")
         else:
@@ -242,7 +244,11 @@ class RACNN_Trainer():
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
             
+<<<<<<< HEAD
             ## testing
+=======
+            ## testing            
+>>>>>>> yanglei
             self.logger.info(f"Validation:")
             log = self.test_one_epoch(epoch)
             self.logger.info(log)
@@ -265,6 +271,7 @@ class RACNN_Trainer():
         accuracy_1 = AverageMeter()
         accuracy_2 = AverageMeter()
 
+<<<<<<< HEAD
         ## hook gap feature
         # feat_hooked = []
         # def hook_feature(module, input, output):
@@ -274,6 +281,17 @@ class RACNN_Trainer():
             # print("output: ", output[0,0:10])
             # print()
         # self.model.conv_scale_0[-2].register_forward_hook(hook_conv_feature)
+=======
+        # ## hook gap feature
+        # feat_hooked = []
+        # def hook_feature(module, input, output):
+        #     # print('hook_gap_feature')
+        #     feat_hooked.append(output) 
+        #     # print(output.shape)
+        #     # print("output: ", output[0,0:10])
+        #     # print()
+        # # self.model.conv_scale_0[-2].register_forward_hook(hook_conv_feature)
+>>>>>>> yanglei
         # h0 = self.model.gap.register_forward_hook(hook_feature)
 
         for batch_idx, batch in tqdm.tqdm(
@@ -325,15 +343,15 @@ class RACNN_Trainer():
                 ### Ranking loss
                 rank_loss = 0.0
                 if loss_config == 1:
-                    probs_0 = F.softmax(out_0, dim=-1)
-                    probs_1 = F.softmax(out_1, dim=-1)
-                    probs_2 = F.softmax(out_1, dim=-1)
-                    gt_probs_0 = probs_0[list(range(B_out)), target]
-                    gt_probs_1 = probs_1[list(range(B_out)), target]
-                    gt_probs_2 = probs_2[list(range(B_out)), target]
-                    # gt_probs_0 = out_0[list(range(B_out)), target]
-                    # gt_probs_1 = out_1[list(range(B_out)), target]
-                    # gt_probs_2 = out_2[list(range(B_out)), target]
+                    # probs_0 = F.softmax(out_0, dim=-1)
+                    # probs_1 = F.softmax(out_1, dim=-1)
+                    # probs_2 = F.softmax(out_1, dim=-1)
+                    # gt_probs_0 = probs_0[list(range(B_out)), target]
+                    # gt_probs_1 = probs_1[list(range(B_out)), target]
+                    # gt_probs_2 = probs_2[list(range(B_out)), target]
+                    gt_probs_0 = out_0[list(range(B_out)), target]
+                    gt_probs_1 = out_1[list(range(B_out)), target]
+                    gt_probs_2 = out_2[list(range(B_out)), target]
                     rank_loss_1 = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
                     rank_loss_2 = self.criterion.PairwiseRankingLoss(gt_probs_1, gt_probs_2, margin=self.margin)
                     rank_loss += rank_loss_1.sum() + rank_loss_2.sum()
@@ -343,6 +361,7 @@ class RACNN_Trainer():
                 ### Temporal coherence
                 temp_loss = 0.0
                 if loss_config == 0 and self.time_consistency:
+<<<<<<< HEAD
                     # # conf_0 = self.criterion.ComputeEntropyAsWeight(out_0).view(B, 3)
                     # # conf_1 = self.criterion.ComputeEntropyAsWeight(out_1).view(B, 3)
                     # ## [0::3] staring from 0, get every another three elements
@@ -356,6 +375,21 @@ class RACNN_Trainer():
                     ## NEW TEMPORAL COHERENCE LOSS
                     temp_loss += self.criterion.BatchContrastiveLoss(feat_hooked[0].squeeze().view(B, 3, -1))
                     temp_loss_meter.update(temp_loss.item(), 1)
+=======
+                    # conf_0 = self.criterion.ComputeEntropyAsWeight(out_0).view(B, 3)
+                    # conf_1 = self.criterion.ComputeEntropyAsWeight(out_1).view(B, 3)
+                    ## [0::3] staring from 0, get every another three elements
+                    temp_loss_0 = self.criterion.TemporalConsistencyLoss(out_0[0::3], out_0[1::3], out_0[2::3], reduction='none')
+                    temp_loss_1 = self.criterion.TemporalConsistencyLoss(out_1[0::3], out_1[1::3], out_1[2::3], reduction='none')
+                    temp_loss_2 = self.criterion.TemporalConsistencyLoss(out_2[0::3], out_2[1::3], out_2[2::3], reduction='none')
+                    # temp_loss += (temp_loss_0*(conf_0**2) + (1-conf_0)**2).sum()
+                    # temp_loss += (temp_loss_1*(conf_1**2) + (1-conf_1)**2).sum()
+                    temp_loss = temp_loss_0.sum() + temp_loss_1.sum() + temp_loss_2.sum()
+
+                    # ## NEW TEMPORAL COHERENCE LOSS
+                    # temp_loss += self.criterion.BatchContrastiveLoss(feat_hooked[0].squeeze().view(B, 3, -1))
+                    # temp_loss_meter.update(temp_loss.item(), 1)
+>>>>>>> yanglei
                     # feat_hooked.clear() ## clear for next batch
                     
                 loss = 0.0
