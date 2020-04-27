@@ -74,6 +74,40 @@ def iou_box(boxA, boxB):
         iou = interArea / float(boxAArea + boxBArea - interArea)
         # return the intersection over union value
         return iou
+def convert_bbox(theta, x, y, x_len, y_len): 
+    new_center_x = (1 + theta[0][0] * theta[0][2]) * 128 
+    new_center_y = (1 + theta[0][1] * theta[0][2]) * 128
+    new_len = 256 * theta[0][2]
+    if (new_center_x - new_len/2).item() < 0:
+        new_upper_left_x = 0
+        border_x = (new_center_x - new_len/2).item()
+        x = x - border_x
+    else:
+        new_upper_left_x = (new_center_x - new_len/2).item()
+
+    if (new_center_y - new_len/2).item() < 0:
+        new_upper_left_y = 0
+        border_y = (new_center_y - new_len/2).item()
+        y = y - border_y
+    else:
+        new_upper_left_y = (new_center_y - new_len/2).item()
+    
+    if x - new_upper_left_x < 0:
+        x_len = int((x_len + (x - new_upper_left_x))/theta[0][2])
+        x = 0
+    else:
+        x = int((x - new_upper_left_x)/theta[0][2])
+        x_len = int(x_len/theta[0][2])
+
+    if y - new_upper_left_y < 0:
+        y_len = int((y_len + (y - new_upper_left_y))/theta[0][2])
+        y = 0
+    else:
+        y = int((y - new_upper_left_y)/theta[0][2])
+        y_len = int(y_len/theta[0][2])
+    
+    return x, y, x_len, y_len
+
 
 def image_sampler(image, theta, out_w=256, out_h=256):
     B, C, H, W = image.shape
@@ -125,7 +159,7 @@ def convertTensorToImage(X):
 class CAMDrawer():
     classes = ['C', 'H', 'P']
 
-    def __init__(self, save_folder, img_width=256, img_height=256, device=None, bar=0.8, classes=None):
+    def __init__(self, save_folder, img_width=256, img_height=256, device=None, bar=0.7, classes=None):
         if classes is not None:
             self.classes = classes
         if device is None:
@@ -152,7 +186,7 @@ class CAMDrawer():
             self.draw_single_cam(
                 epoch, gt_lbl, img_path, 
                 prob_list[lvl], weight_softmax_list[lvl][gt_lbl,:], feature_list[lvl], 
-                lvl=lvl, theta=theta_list, sub_folder = f"scale_{lvl}")
+                lvl=lvl, theta=theta_list, sub_folder = f"scale_{lvl}", )
 
     def draw_multiple_cams_with_zoom_in_box(self, epoch, gt_lbls, img_paths, probs, class_weights, features, thetas, sub_folder=None, GT=None):
         ## make dir
@@ -255,38 +289,13 @@ class CAMDrawer():
             if theta is None:
                 gt_image[y:y+y_len, x:x+x_len] = 1
             else:
-                print(theta)
-                new_center_x = (1 + theta[0][0] * theta[0][2]) * 128 
-                new_center_y = (1 + theta[0][1] * theta[0][2]) * 128
-                new_len = 256 * theta[0][2]
-                if (new_center_x - new_len/2).item() < 0:
-                    new_upper_left_x = 0
-                    border_x = (new_center_x - new_len/2).item()
-                    x = x - border_x
-                else:
-                    new_upper_left_x = (new_center_x - new_len/2).item()
-
-                if (new_center_y - new_len/2).item() < 0:
-                    new_upper_left_y = 0
-                    border_y = (new_center_y - new_len/2).item()
-                    y = y - border_y
-                else:
-                    new_upper_left_y = (new_center_y - new_len/2).item()
-                
-                if x - new_upper_left_x < 0:
-                    x_len = int((x_len + (x - new_upper_left_x))/theta[0][2])
-                    x = 0
-                else:
-                    x = int((x - new_upper_left_x)/theta[0][2])
-                    x_len = int(x_len/theta[0][2])
-
-                if y - new_upper_left_y < 0:
-                    y_len = int((y_len + (y - new_upper_left_y))/theta[0][2])
-                    y = 0
-                else:
-                    y = int((y - new_upper_left_y)/theta[0][2])
-                    y_len = int(y_len/theta[0][2])
+                x, y, x_len, y_len = convert_bbox(theta[0], x, y, x_len, y_len)
+                if lvl == 2:
+                    x, y, x_len, y_len = convert_bbox(theta[1], x, y, x_len, y_len)
                     
+                
+                
+                
                 # print(new_center_y)
                 gt_image[y:y+y_len, x:x+x_len] = 1
 

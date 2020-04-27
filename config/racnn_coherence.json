@@ -8,10 +8,11 @@
     "saved": "saved/",
     "board": "runs/",
     "ckpt_save_period": 5,
-    "learning_rate": 0.0001,
+    "learning_rate": 0.001,
     "weight_decay": 0.0,
     "temp_consistency_weight": 0.1,
-    "pretrained":true,
+    "pretrained": true,
     "interleave": 5,
-    "architecture": "RACNN"
+    "architecture": "RACNN",
+    "bbox_bar": 0.7
 }

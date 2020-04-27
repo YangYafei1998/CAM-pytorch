@@ -56,8 +56,8 @@ class ImageDataset():
 
         self.image_files = file_getlines(image_path_file)
         self.image_labels = file_getlines(image_label_file)
-        # if image_localization_file is not None:
-        #     self.image_localization = file_getlines(image_localization_file)
+        if image_localization_file is not None:
+            self.image_localization = file_getlines(image_localization_file)
         
         normalize = transforms.Normalize(
                 mean=[0.485, 0.456, 0.406],
@@ -104,13 +104,13 @@ class ImageDataset():
 
     ## original
     def __getitem__(self, index):
-        # if self.is_training:
-        if self.temporal_coherence:
-            return self.__getitem__coherence(index)
+        if self.is_training:
+            if self.temporal_coherence:
+                return self.__getitem__coherence(index)
+            else:
+                return self.__getitem__original(index)
         else:
-            return self.__getitem__original(index)
-        # else:
-        #     return self.__getitem__localization(index)
+            return self.__getitem__localization(index)
 
     def __getitem__original(self, idx):
         img_path, img_target = self.image_files[idx], self.image_labels[idx]

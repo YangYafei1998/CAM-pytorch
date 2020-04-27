@@ -55,6 +55,7 @@ def main(config):
     test_dataset = ImageDataset(
         'image_path_folder/test_image_list_sorted.txt', 
         'image_path_folder/test_image_label_sorted.txt', 
+        'image_path_folder/localizationGT.txt',
         is_training=False)
 
     ## network
@@ -79,7 +80,7 @@ def main(config):
 
     ## optimizer
     optimizer = torch.optim.SGD(net.parameters(), lr=LEARNING_RATE, momentum=0.9, weight_decay=WEIGHT_DECAY)
-    scheduler  = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[25, 55], gamma=0.1)
+    scheduler  = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 25], gamma=0.1)
     
     ## loss
     criterion = TCLoss(num_classes=3)
@@ -131,6 +132,8 @@ if __name__ == '__main__':
     parser.add_argument('--comment', help="comments to the session", type=str)
     parser.add_argument('--config', default=None, type=str,
                         help='JSON config path')
+    parser.add_argument('--bbox_bar', default=None, type=float,
+                        help='the bar for bounding box generating')
 
     args = parser.parse_args()
     assert args.config is not None, "Please provide the JSON file path containing hyper-parameters for config the network"

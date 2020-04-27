@@ -25,11 +25,13 @@ def write_video_from_images(pathIn, videoName):
     # for sorting the file names properly
     files.sort(key=lambda x: x[5:-4])
     files.sort()
+    # print(len(files))
     size = (0, 0)
     for filename in files:
+
         # skip files other than images
-        if not filename.lower().endswith(extensions):
-            continue
+        # if not filename.lower().endswith(extensions):
+        #     continue
 
         # print(filename)
         img = cv2.imread(os.path.join(pathIn,filename))
@@ -41,6 +43,7 @@ def write_video_from_images(pathIn, videoName):
 
     print(size)
     print(videoName)
+    # print(len(frame_array))
     out = cv2.VideoWriter(videoName, cv2.VideoWriter_fourcc(*'DIVX'), 10, size)
     for i in range(len(frame_array)):
         out.write(frame_array[i])
@@ -54,4 +57,4 @@ if __name__ == '__main__':
     epoch_idx = 10
     img_folder = os.path.join('saved', config_name, timestamp, 'result', f"epoch{epoch_idx}")
     videoname = f'video_{config_name}_{timestamp}_epoch{epoch_idx}.avi'
-    write_video_from_images( img_folder, videoname)
+    write_video_from_images('/userhome/30/yfyang/fyp-larger/seq_data/train/images/CP', 'traing-data-CP.avi')

@@ -89,7 +89,7 @@ class RACNN_Trainer():
         else:
             self.device = torch.device("cpu")
         
-        self.drawer = CAMDrawer(self.result_folder, bar=0.8)
+        self.drawer = CAMDrawer(self.result_folder, bar=config['bbox_bar'])
         self.draw_cams = True
 
         self.model = model.to(self.device)
@@ -197,9 +197,9 @@ class RACNN_Trainer():
 
     ## pre-train session
     def pretrain(self):
-        for _ in range(5):
-            self.pretrain_classification()
-        self._save_checkpoint(0, pretrain_ckp=True)
+        # for _ in range(5):
+        #     self.pretrain_classification()
+        # self._save_checkpoint(0, pretrain_ckp=True)
         for _ in range(3):
             self.pretrain_apn()
         self._save_checkpoint(1, pretrain_ckp=True)
@@ -313,7 +313,7 @@ class RACNN_Trainer():
                 probs_2 = F.softmax(out_1, dim=-1)
                 gt_probs_0 = probs_0[list(range(B_out)), target]
                 gt_probs_1 = probs_1[list(range(B_out)), target]
-                gt_probs_2 = probs_1[list(range(B_out)), target]
+                gt_probs_2 = probs_2[list(range(B_out)), target]
                 rank_loss_1 = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
                 rank_loss_2 = self.criterion.PairwiseRankingLoss(gt_probs_1, gt_probs_2, margin=self.margin)
                 rank_loss = rank_loss_1.sum() + rank_loss_2.sum()
@@ -416,7 +416,7 @@ class RACNN_Trainer():
             #    ncols=80, 
             #    leave=False):
             for batch_idx, batch in enumerate(self.testloader):
-                data, target, idx = batch
+                data, target, idx, locationGT = batch
                 data, target = data.to(self.device), target.to(self.device)
                 B = data.shape[0]
                 H, W = data.shape[-2:]
@@ -465,17 +465,17 @@ class RACNN_Trainer():
                     self.drawer.draw_single_cam(
                         epoch, target, img_path[0], 
                         gt_probs_0, weight_softmax_0_gt, f_conv_0[-1], 
-                        theta=None, sub_folder='scale_0')
+                        theta=None, sub_folder='scale_0', GT = locationGT[0])
 
                     self.drawer.draw_single_cam(
                         epoch, target, img_path[0], 
                         gt_probs_1, weight_softmax_1_gt, f_conv_1[-1], 
-                        lvl = 1, theta=ListDatatoCPU(t_list[0:1]), sub_folder='scale_1')
+                        lvl = 1, theta=ListDatatoCPU(t_list[0:1]), sub_folder='scale_1', GT = locationGT[0])
                     
                     self.drawer.draw_single_cam(
                         epoch, target, img_path[0], 
                         gt_probs_2, weight_softmax_2_gt, f_conv_2[-1], 
-                        lvl = 2, theta=ListDatatoCPU(t_list[0:2]), sub_folder='scale_2')
+                        lvl = 2, theta=ListDatatoCPU(t_list[0:2]), sub_folder='scale_2', GT = locationGT[0])
 
                     # input()
             # if self.draw_cams:
@@ -625,10 +625,6 @@ class RACNN_Trainer():
                     target = target.view(B*3)
                 # data [B, C, H, W]
                 
-                if self.time_consistency:
-                    data = data.view(B*3, 3, H, W)
-                    target = target.view(B*3)
-                
                 out_list, t_list = self.model(data, target.unsqueeze(1), 1) ## [B, NumClasses]
                 out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
                 t_01, t_12 = t_list[0], t_list[1]
@@ -679,7 +675,10 @@ class RACNN_Trainer():
                 loss_meter.update(loss.item())
 
                 ## draw images
-                img_path = self.trainloader.dataset.get_fname(idx[0])
+                if self.time_consistency:
+                    img_path = self.trainloader.dataset.get_fname(idx[0])
+                else:
+                    img_path = self.trainloader.dataset.get_fname(idx)
                 for i in range(B):
                     # img_path = self.trainloader.dataset.get_fname([idx[j][0].item()])
                     img = cv2.imread(img_path[i], -1) ## [H, W, C]
