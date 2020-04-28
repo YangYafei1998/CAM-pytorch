@@ -21,30 +21,13 @@ def generateListandLabel(path1, path2):
 
     class_to_idx = {"C":0, "H":1, "P":2, "CP":3, "HC":4, "PH":5}
 
-    sorted_image_class_list = make_dataset(f'{path2}', class_to_idx =class_to_idx, extensions='jpg,png')
+    sorted_image_class_list = make_dataset(f'{path1}', class_to_idx =class_to_idx, extensions='jpg,png')
 
 
-    # with open(f"{path1}/train_image_list_sorted_6.txt", "w") as f:
-    #     for item in sorted_image_class_list:
-    #         # print("path is ",item[0])
-            
-    #         # img=cv2.imread(item[0])
-    #         # print("img shape", img.shape)
-    #         # if(img.shape[2]<3):
-    #             # print("delete item",item[0])
-    #         f.write(item[0])
-    #         f.write("\n")
-
-    # with open(f"{path1}/train_image_label_sorted_6.txt", "w") as f:
-    #     for item in sorted_image_class_list:
-    #         f.write(str(item[1]))
-    #         f.write("\n")
-
-    # sorted_image_class_list = make_dataset(f'{path2}', class_to_idx =class_to_idx, extensions='jpg,png')
-
-
-    with open(f"{path2}/test_image_list_sorted.txt", "w") as f:
+    with open(f"{path1}/train_image_list_sorted_6.txt", "w") as f:
         for item in sorted_image_class_list:
+            # print("path is ",item[0])
+            
             # img=cv2.imread(item[0])
             # print("img shape", img.shape)
             # if(img.shape[2]<3):
@@ -52,10 +35,27 @@ def generateListandLabel(path1, path2):
             f.write(item[0])
             f.write("\n")
 
-    with open(f"{path2}/test_image_label_sorted.txt", "w") as f:
+    with open(f"{path1}/train_image_label_sorted_6.txt", "w") as f:
         for item in sorted_image_class_list:
             f.write(str(item[1]))
             f.write("\n")
+
+    # sorted_image_class_list = make_dataset(f'{path2}', class_to_idx =class_to_idx, extensions='jpg,png')
+
+
+    # with open(f"{path2}/test_image_list_sorted.txt", "w") as f:
+    #     for item in sorted_image_class_list:
+    #         # img=cv2.imread(item[0])
+    #         # print("img shape", img.shape)
+    #         # if(img.shape[2]<3):
+    #             # print("delete item",item[0])
+    #         f.write(item[0])
+    #         f.write("\n")
+
+    # with open(f"{path2}/test_image_label_sorted.txt", "w") as f:
+    #     for item in sorted_image_class_list:
+    #         f.write(str(item[1]))
+    #         f.write("\n")
 
     # class_to_idx = {"C":0, "H":1, "P":2, "CP":3, "HC":4, "PH":5}
 
@@ -108,4 +108,4 @@ def seperateCUB(path='/userhome/30/jrwang/CUB_200_2011/'):
                 copyfile(f"{path}/images/{path1}", f"{path}/test/{path1}")
 
 # seperateCUB()
-generateListandLabel(path1='/userhome/30/jrwang/debug6Ctrain/images',path2='/userhome/30/jrwang/debugTest/images' )
+generateListandLabel(path1='/userhome/30/jrwang/6Ctrain/images',path2='/userhome/30/jrwang/debugTest/images' )

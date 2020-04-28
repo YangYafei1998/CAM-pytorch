@@ -238,6 +238,7 @@ class CAMDrawer():
                 img_path, lvl=2, theta=None):
         # render the CAM and output
         img = cv2.imread(img_path, -1) ## [H, W, C]
+        print("path", img)
         if isinstance(theta, list):            
             assert lvl == len(theta), f"Error: lvl {lvl} should equal to len(theta): {theta}"
             img_tensor = torch.from_numpy(img).type(torch.FloatTensor).unsqueeze(0)
