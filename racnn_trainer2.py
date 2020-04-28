@@ -61,7 +61,6 @@ def ListDatatoCPU(list_data):
 
 def ListSpecificBatchDatatoCPU(list_data, batch):
     assert isinstance(list_data, list)
-
     cpu_list_data = []
     for i in range(0,len(list_data)):
         # print("unsqueeze ",list_data[i][batch].unsqueeze(0))
@@ -131,9 +130,9 @@ class RACNN_Trainer():
             self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0, drop_last=True) 
             self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0, drop_last=True) 
         else:
-            self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True) 
-            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4, drop_last=True) 
-            self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4, drop_last=True) 
+            self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0) 
+            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
+            self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
 
         self.augmenter = DataAugmentation()
 
@@ -328,7 +327,7 @@ class RACNN_Trainer():
 
                 out_list, t_list = self.model(data, target.unsqueeze(1), loss_config) ## [B, NumClasses]
                 out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
-                t_01, t_12 = t_list[0], t_list[1]
+                # t_01, t_12 = t_list[0], t_list[1]
 
                 ### Classification loss
                 cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
@@ -373,9 +372,9 @@ class RACNN_Trainer():
                     rank_loss_1 += self.criterion.RankingLossDivideByCount(gt_probs_0, count0_fullsize, gt_probs_1, count0_masked, margin=self.margin)
                     rank_loss_2 += self.criterion.RankingLossDivideByCount(gt_probs_1, count1_fullsize, gt_probs_2, count1_masked, margin=self.margin)                
                     
-                    # count0 = camforCount(weight_softmax_0_gt[batch_inner_id], f_conv_0[-1][batch_inner_id], img_path[0])                   
-                    # count1 = camforCount(weight_softmax_1_gt[batch_inner_id], f_conv_1[-1][batch_inner_id], img_path[0])
-                    # count2 = camforCount(weight_softmax_2_gt[batch_inner_id], f_conv_2[-1][batch_inner_id], img_path[0])
+                    # count0 = camforCount(weight_softmax_0_gt[batch_inner_id], f_conv_0[-1][batch_inner_id], img_path[batch_inner_id])                   
+                    # count1 = camforCount(weight_softmax_1_gt[batch_inner_id], f_conv_1[-1][batch_inner_id], img_path[batch_inner_id])
+                    # count2 = camforCount(weight_softmax_2_gt[batch_inner_id], f_conv_2[-1][batch_inner_id], img_path[batch_inner_id])
                     # rank_loss_1 += self.criterion.RankingLossDivideByCount(gt_probs_0, count0, gt_probs_1, count1, margin=self.margin)
                     # rank_loss_2 += self.criterion.RankingLossDivideByCount(gt_probs_1, count1, gt_probs_2, count2, margin=self.margin)                
                 rank_loss = rank_loss_1.sum() + rank_loss_2.sum()
@@ -446,30 +445,58 @@ class RACNN_Trainer():
 
 
         with torch.no_grad():
-            params_classifier_0 = list(self.model.classifier_0.parameters())
-            params_classifier_1 = list(self.model.classifier_1.parameters())
-            params_classifier_2 = list(self.model.classifier_2.parameters())
-            ## -2 because we have bias in the classifier
-            weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
-            weight_softmax_1 = np.squeeze(params_classifier_1[-2].data.cpu().numpy())
-            weight_softmax_2 = np.squeeze(params_classifier_2[-2].data.cpu().numpy())
+            if (self.draw_cams and epoch % self.save_period == 0) or epoch == 0 or epoch == 1:
+                # self._save_checkpoint(epoch)
+                ## weight
+                params_classifier_0 = list(self.model.classifier_0.parameters())
+                params_classifier_1 = list(self.model.classifier_1.parameters())
+                params_classifier_2 = list(self.model.classifier_2.parameters())
+                ## -2 because we have bias in the classifier
+                weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
+                weight_softmax_1 = np.squeeze(params_classifier_1[-2].data.cpu().numpy())
+                weight_softmax_2 = np.squeeze(params_classifier_2[-2].data.cpu().numpy())
 
-            # hook the feature extractor instantaneously and remove it once data is hooked
-            f_conv_0, f_conv_1, f_conv_2 = [], [], []
-            def hook_feature_conv_scale_0(module, input, output):
-                # print("called f conv 0")
-                f_conv_0.clear()
-                f_conv_0.append(output.data.cpu().numpy())
-            def hook_feature_conv_scale_1(module, input, output):
-                f_conv_1.clear()
-                f_conv_1.append(output.data.cpu().numpy())
-            def hook_feature_conv_scale_2(module, input, output):
-                f_conv_2.clear()
-                f_conv_2.append(output.data.cpu().numpy())
-            ## place hooker
-            h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
-            h1 = self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
-            h2 = self.model.conv_scale_2[-2].register_forward_hook(hook_feature_conv_scale_2)
+                # hook the feature extractor instantaneously and remove it once data is hooked
+                f_conv_0, f_conv_1, f_conv_2 = [], [], []
+                def hook_feature_conv_scale_0(module, input, output):
+                    f_conv_0.clear()
+                    f_conv_0.append(output.data.cpu().numpy())
+                def hook_feature_conv_scale_1(module, input, output):
+                    f_conv_1.clear()
+                    f_conv_1.append(output.data.cpu().numpy())
+                def hook_feature_conv_scale_2(module, input, output):
+                    f_conv_2.clear()
+                    f_conv_2.append(output.data.cpu().numpy())
+                ## place hooker
+                h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
+                h1 = self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
+                h2 = self.model.conv_scale_2[-2].register_forward_hook(hook_feature_conv_scale_2)
+                print("saving CAMs")
+
+            # params_classifier_0 = list(self.model.classifier_0.parameters())
+            # params_classifier_1 = list(self.model.classifier_1.parameters())
+            # params_classifier_2 = list(self.model.classifier_2.parameters())
+            # ## -2 because we have bias in the classifier
+            # weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
+            # weight_softmax_1 = np.squeeze(params_classifier_1[-2].data.cpu().numpy())
+            # weight_softmax_2 = np.squeeze(params_classifier_2[-2].data.cpu().numpy())
+
+            # # hook the feature extractor instantaneously and remove it once data is hooked
+            # f_conv_0, f_conv_1, f_conv_2 = [], [], []
+            # def hook_feature_conv_scale_0(module, input, output):
+            #     # print("called f conv 0")
+            #     f_conv_0.clear()
+            #     f_conv_0.append(output.data.cpu().numpy())
+            # def hook_feature_conv_scale_1(module, input, output):
+            #     f_conv_1.clear()
+            #     f_conv_1.append(output.data.cpu().numpy())
+            # def hook_feature_conv_scale_2(module, input, output):
+            #     f_conv_2.clear()
+            #     f_conv_2.append(output.data.cpu().numpy())
+            # ## place hooker
+            # h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
+            # h1 = self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
+            # h2 = self.model.conv_scale_2[-2].register_forward_hook(hook_feature_conv_scale_2)
 
         #for batch_idx, batch in tqdm.tqdm(
             #    enumerate(self.testloader), 
@@ -516,8 +543,8 @@ class RACNN_Trainer():
                 gt_probs_1 = probs_1[list(range(B)), target]
                 gt_probs_2 = probs_2[list(range(B)), target]
                 
-                rank_loss_1 = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
-                rank_loss_2 = self.criterion.PairwiseRankingLoss(gt_probs_1, gt_probs_2, margin=self.margin)
+                # rank_loss_1 = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
+                # rank_loss_2 = self.criterion.PairwiseRankingLoss(gt_probs_1, gt_probs_2, margin=self.margin)
                 
                 
                 # img_path = self.testloader.dataset.get_fname(idx)
@@ -529,22 +556,22 @@ class RACNN_Trainer():
                 # rank_loss_2 = self.criterion.RankingLossDivideByCount(gt_probs_1, count1, gt_probs_2, count2, margin=self.margin)
                 
                 
-                img_path = self.testloader.dataset.get_fname(idx)
-                count0_fullsize,count0_masked,count1_fullsize,count1_masked = self.drawer.camforCountWithZoomIn(epoch, 
-                                weight_softmax_0_gt , f_conv_0[-1] , 
-                                weight_softmax_1_gt , f_conv_1[-1] , 
-                                weight_softmax_2_gt , f_conv_2[-1] , 
-                                img_path[0],2,ListDatatoCPU(t_list[0:2]))
-                rank_loss_1 += self.criterion.RankingLossDivideByCount(gt_probs_0, count0_fullsize, gt_probs_1, count0_masked, margin=self.margin)
-                rank_loss_2 += self.criterion.RankingLossDivideByCount(gt_probs_1, count1_fullsize, gt_probs_2, count1_masked, margin=self.margin)                
+                # img_path = self.testloader.dataset.get_fname(idx)
+                # count0_fullsize,count0_masked,count1_fullsize,count1_masked = self.drawer.camforCountWithZoomIn(epoch, 
+                #                 weight_softmax_0_gt , f_conv_0[-1] , 
+                #                 weight_softmax_1_gt , f_conv_1[-1] , 
+                #                 weight_softmax_2_gt , f_conv_2[-1] , 
+                #                 img_path[0],2,ListDatatoCPU(t_list[0:2]))
+                # rank_loss_1 += self.criterion.RankingLossDivideByCount(gt_probs_0, count0_fullsize, gt_probs_1, count0_masked, margin=self.margin)
+                # rank_loss_2 += self.criterion.RankingLossDivideByCount(gt_probs_1, count1_fullsize, gt_probs_2, count1_masked, margin=self.margin)                
                 
 
 
-                rank_loss = rank_loss_1.sum() + rank_loss_2.sum()
+                # rank_loss = rank_loss_1.sum() + rank_loss_2.sum()
 
                 ##
-                cls_loss_meter.update(cls_loss, 1)
-                rank_loss_meter.update(rank_loss, 1)
+                # cls_loss_meter.update(cls_loss, 1)
+                # rank_loss_meter.update(rank_loss, 1)
                 # calculate accuracy
                 accuracy_0.update(compute_acc(out_0, target, B_out), 1)
                 accuracy_1.update(compute_acc(out_1, target, B_out), 1)
@@ -606,11 +633,11 @@ class RACNN_Trainer():
 
 
         return {
-            'cls_loss': cls_loss_meter.avg, 
+            # 'cls_loss': cls_loss_meter.avg, 
             'cls_acc_0': accuracy_0.avg, 
             'cls_acc_1': accuracy_1.avg, 
             'cls_acc_2': accuracy_2.avg, 
-            'rank_loss': rank_loss_meter.avg,
+            # 'rank_loss': rank_loss_meter.avg,
         }
 
     ##
