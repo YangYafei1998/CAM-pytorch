@@ -242,6 +242,7 @@ class CAMDrawer():
         img = cv2.imread(img_path, -1) ## [H, W, C]
         # print("path", img)
         if isinstance(theta, list):
+            ## add this line to keep the section no grad
             with torch.no_grad():      
                 assert lvl == len(theta), f"Error: lvl {lvl} should equal to len(theta): {len(theta)}"
                 img_tensor = torch.from_numpy(img).type(torch.FloatTensor).unsqueeze(0)

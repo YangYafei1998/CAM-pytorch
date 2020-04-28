@@ -126,13 +126,13 @@ class RACNN_Trainer():
         self.mini_train = config.get('mini_train', False)
 
         if config['disable_workers']:
-            self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0, drop_last=True) 
-            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0, drop_last=True) 
-            self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0, drop_last=True) 
-        else:
             self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0) 
             self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
             self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
+        else:
+            self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4) 
+            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
+            self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4) 
 
         self.augmenter = DataAugmentation()
 
@@ -178,28 +178,7 @@ class RACNN_Trainer():
 
         # load architecture params from checkpoint.
         self.model.load_state_dict(checkpoint['state_dict'], strict=False)
-        # if checkpoint['config']['model'] != self.config['model']:
-        #     msg = ("Warning: Architecture configuration given in config file is"
-        #            " different from that of checkpoint."
-        #            " This may yield an exception while state_dict is being loaded.")
-        #     self.logger.warning(msg)
-        # else:
-        #     self.model.load_state_dict(checkpoint['state_dict'], strict=False)
 
-        # if not load_pretrain:
-        #     # uncomment this line if you want to use the resumed optimizer
-        #     # load optimizer state from checkpoint only when optimizer type is not changed.
-        #     ckpt_opt_type = checkpoint['config']['optimizer']['type']
-        #     if ckpt_opt_type != self.config['optimizer']['type']:
-        #         msg = ("Warning: Optimizer type given in config file is different from"
-        #             "that of checkpoint.  Optimizer parameters not being resumed.")
-        #         self.logger.warning(msg)
-        #     else:
-        #         self.optimizer.load_state_dict(checkpoint['optimizer'])
-
-        # # self.logger = checkpoint['logger']
-        # msg = "Checkpoint '{}' (epoch {}) loaded"
-        # self.logger.info(msg .format(resume_path, self.start_epoch))
         if not load_pretrain:
             print("load to resume")
         else:
@@ -221,7 +200,12 @@ class RACNN_Trainer():
     def train(self, max_epoch, do_validation=True):
         if max_epoch is not None:
             self.max_epoch = max_epoch
+        
 
+        # self.logger.info(f"APN\n")
+        # log = self.train_one_epoch(0, 1)
+        # self.logger.info(log)
+        # self._save_checkpoint(epoch)
         # self.test_one_epoch(0)
 
         for epoch in range(max_epoch):
@@ -229,9 +213,9 @@ class RACNN_Trainer():
             self.logger.info(f"epoch {epoch}:\n")
             self.logger.info(f"Training:\n")
 
-            # self.logger.info(f"Classification\n")
-            # log = self.train_one_epoch(epoch, 0)
-            # self.logger.info(log)
+            self.logger.info(f"Classification\n")
+            log = self.train_one_epoch(epoch, 0)
+            self.logger.info(log)
 
             if epoch % self.interleaving_step == 0:
                 self._save_checkpoint(epoch)
@@ -300,9 +284,9 @@ class RACNN_Trainer():
             f_conv_2.append(output.data.cpu().numpy())
 
 
-        h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
-        h1 = self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
-        h2 = self.model.conv_scale_2[-2].register_forward_hook(hook_feature_conv_scale_2)
+        h0=self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
+        h1=self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
+        h2=self.model.conv_scale_2[-2].register_forward_hook(hook_feature_conv_scale_2)
         # print("h0, ", h0)
 
         
@@ -337,6 +321,10 @@ class RACNN_Trainer():
                 if self.time_consistency:
                     data = data.view(B*3, 3, H, W)
                     target = target.view(B*3)
+                print("current batch id : ",batch_idx, "idx is ", idx)
+                print("target.shape", target.shape)
+                print("data.shape", data.shape)
+                print("current img path: ",self.trainloader.dataset.get_fname(idx))
 
                 out_list, t_list = self.model(data, target.unsqueeze(1), loss_config) ## [B, NumClasses]
                 out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
@@ -349,18 +337,16 @@ class RACNN_Trainer():
                 cls_loss_2, preds_2 = self.criterion.ImgLvlClassLoss(out_2, target, reduction='none')
                 cls_loss = cls_loss_0.sum() + cls_loss_1.sum() + cls_loss_2.sum()
 
-                ##-----------------------
-                ## this is problematic; check this out
-                # params_classifier_0 = list(self.model.classifier_0.parameters())
-                # params_classifier_1 = list(self.model.classifier_1.parameters())
-                # params_classifier_2 = list(self.model.classifier_2.parameters())
-                # weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
-                # weight_softmax_1 = np.squeeze(params_classifier_1[-2].data.cpu().numpy())
-                # weight_softmax_2 = np.squeeze(params_classifier_2[-2].data.cpu().numpy())   
+
+                params_classifier_0 = list(self.model.classifier_0.parameters())
+                params_classifier_1 = list(self.model.classifier_1.parameters())
+                params_classifier_2 = list(self.model.classifier_2.parameters())
+                weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
+                weight_softmax_1 = np.squeeze(params_classifier_1[-2].data.cpu().numpy())
+                weight_softmax_2 = np.squeeze(params_classifier_2[-2].data.cpu().numpy())   
                 weight_softmax_0_gt = weight_softmax_0[target.cpu(), :]
                 weight_softmax_1_gt = weight_softmax_1[target.cpu(), :] 
                 weight_softmax_2_gt = weight_softmax_2[target.cpu(), :]       
-                ##-----------------------
 
                 probs_0 = F.softmax(out_0, dim=-1)
                 probs_1 = F.softmax(out_1, dim=-1)
@@ -441,10 +427,9 @@ class RACNN_Trainer():
                 accuracy_0.update(compute_acc(out_0, target, B_out), 1)
                 accuracy_1.update(compute_acc(out_1, target, B_out), 1)
                 accuracy_2.update(compute_acc(out_2, target, B_out), 1)
-
-        h0.remove()
-        h1.remove()
-        h2.remove()
+            h0.remove()
+            h1.remove()
+            h2.remove()
 
         return {
             'cls_loss': cls_loss_meter.avg, 
@@ -491,9 +476,9 @@ class RACNN_Trainer():
                     f_conv_2.clear()
                     f_conv_2.append(output.data.cpu().numpy())
                 ## place hooker
-                h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
-                h1 = self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
-                h2 = self.model.conv_scale_2[-2].register_forward_hook(hook_feature_conv_scale_2)
+                h0=self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
+                h1=self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
+                h2=self.model.conv_scale_2[-2].register_forward_hook(hook_feature_conv_scale_2)
                 print("saving CAMs")
 
             # params_classifier_0 = list(self.model.classifier_0.parameters())
@@ -649,7 +634,7 @@ class RACNN_Trainer():
                 write_video_from_images(cam_path_scale_2, videoname_2)
                 shutil.rmtree(cam_path_scale_2)
 
-                # draw_fig(self.log_folder)
+                draw_fig(self.log_folder)
                 h0.remove()
                 h1.remove()
                 h2.remove()
