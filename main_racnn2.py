@@ -57,8 +57,8 @@ def main(config):
 
 
     test_dataset = ImageDataset(
-        'image_path_folder/train_image_list_sorted.txt', 
-        'image_path_folder/train_image_label_sorted.txt', 
+        'image_path_folder/test_image_list_sorted.txt', 
+        'image_path_folder/test_image_label_sorted.txt', 
         is_training=False)
 
     ## network

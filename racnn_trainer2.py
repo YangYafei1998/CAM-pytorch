@@ -336,16 +336,18 @@ class RACNN_Trainer():
                 cls_loss_2, preds_2 = self.criterion.ImgLvlClassLoss(out_2, target, reduction='none')
                 cls_loss = cls_loss_0.sum() + cls_loss_1.sum() + cls_loss_2.sum()
 
-
-                params_classifier_0 = list(self.model.classifier_0.parameters())
-                params_classifier_1 = list(self.model.classifier_1.parameters())
-                params_classifier_2 = list(self.model.classifier_2.parameters())
-                weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
-                weight_softmax_1 = np.squeeze(params_classifier_1[-2].data.cpu().numpy())
-                weight_softmax_2 = np.squeeze(params_classifier_2[-2].data.cpu().numpy())   
+                ##-----------------------
+                ## this is problematic; check this out
+                # params_classifier_0 = list(self.model.classifier_0.parameters())
+                # params_classifier_1 = list(self.model.classifier_1.parameters())
+                # params_classifier_2 = list(self.model.classifier_2.parameters())
+                # weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
+                # weight_softmax_1 = np.squeeze(params_classifier_1[-2].data.cpu().numpy())
+                # weight_softmax_2 = np.squeeze(params_classifier_2[-2].data.cpu().numpy())   
                 weight_softmax_0_gt = weight_softmax_0[target.cpu(), :]
                 weight_softmax_1_gt = weight_softmax_1[target.cpu(), :] 
                 weight_softmax_2_gt = weight_softmax_2[target.cpu(), :]       
+                ##-----------------------
 
                 probs_0 = F.softmax(out_0, dim=-1)
                 probs_1 = F.softmax(out_1, dim=-1)
@@ -594,10 +596,11 @@ class RACNN_Trainer():
                 write_video_from_images(cam_path_scale_2, videoname_2)
                 shutil.rmtree(cam_path_scale_2)
 
-                draw_fig(self.log_folder)
-                h0.remove()
-                h1.remove()
-                h2.remove()
+                # draw_fig(self.log_folder)
+
+            h0.remove()
+            h1.remove()
+            h2.remove()
 
 
         return {
