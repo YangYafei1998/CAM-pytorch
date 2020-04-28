@@ -420,6 +420,9 @@ class RACNN_Trainer():
                 accuracy_1.update(compute_acc(out_1, target, B_out), 1)
                 accuracy_2.update(compute_acc(out_2, target, B_out), 1)
 
+        h0.remove()
+        h1.remove()
+        h2.remove()
 
         return {
             'cls_loss': cls_loss_meter.avg, 
@@ -596,11 +599,10 @@ class RACNN_Trainer():
                 write_video_from_images(cam_path_scale_2, videoname_2)
                 shutil.rmtree(cam_path_scale_2)
 
-                # draw_fig(self.log_folder)
-
-            h0.remove()
-            h1.remove()
-            h2.remove()
+                draw_fig(self.log_folder)
+                h0.remove()
+                h1.remove()
+                h2.remove()
 
 
         return {
