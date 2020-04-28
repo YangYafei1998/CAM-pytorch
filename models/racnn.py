@@ -64,24 +64,24 @@ class RACNN(nn.Module):
             basemodel.layer2,
             basemodel.layer3
         )
-        # self.base1 = nn.Sequential(
-        #     basemodel.conv1,
-        #     basemodel.bn1,
-        #     basemodel.relu,
-        #     basemodel.maxpool,
-        #     basemodel.layer1,
-        #     basemodel.layer2,
-        #     basemodel.layer3
-        # )
-        # self.base2 = nn.Sequential(
-        #     basemodel.conv1,
-        #     basemodel.bn1,
-        #     basemodel.relu,
-        #     basemodel.maxpool,
-        #     basemodel.layer1,
-        #     basemodel.layer2,
-        #     basemodel.layer3
-        # )
+        self.base1 = nn.Sequential(
+            basemodel.conv1,
+            basemodel.bn1,
+            basemodel.relu,
+            basemodel.maxpool,
+            basemodel.layer1,
+            basemodel.layer2,
+            basemodel.layer3
+        )
+        self.base2 = nn.Sequential(
+            basemodel.conv1,
+            basemodel.bn1,
+            basemodel.relu,
+            basemodel.maxpool,
+            basemodel.layer1,
+            basemodel.layer2,
+            basemodel.layer3
+        )
 
         ## global average pooling
         self.gap = nn.AdaptiveAvgPool2d(1)
@@ -155,14 +155,14 @@ class RACNN(nn.Module):
             f_gap = self.gap(f_conv)
             return self.classifier_0(self.drop(f_gap).squeeze(2).squeeze(2)), f_conv
         elif lvl == 1:
-            # x = self.base1(x)
-            x = self.base(x)
+            x = self.base1(x)
+            # x = self.base(x)
             f_conv = self.conv_scale_1(x)
             f_gap = self.gap(f_conv)
             return self.classifier_1(self.drop(f_gap).squeeze(2).squeeze(2)), f_conv
         elif lvl == 2:
-            # x = self.base2(x)
-            x = self.base(x)
+            x = self.base2(x)
+            # x = self.base(x)
             f_conv = self.conv_scale_2(x)
             f_gap = self.gap(f_conv)
             return self.classifier_2(self.drop(f_gap).squeeze(2).squeeze(2)), f_conv

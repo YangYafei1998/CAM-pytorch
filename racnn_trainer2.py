@@ -229,15 +229,16 @@ class RACNN_Trainer():
             self.logger.info(f"epoch {epoch}:\n")
             self.logger.info(f"Training:\n")
 
-            self.logger.info(f"Classification\n")
-            log = self.train_one_epoch(epoch, 0)
-            self.logger.info(log)
+            # self.logger.info(f"Classification\n")
+            # log = self.train_one_epoch(epoch, 0)
+            # self.logger.info(log)
 
-            if epoch != 0 and epoch % self.interleaving_step == 0:
+            if epoch % self.interleaving_step == 0:
+                self._save_checkpoint(epoch)
                 self.logger.info(f"APN\n")
                 log = self.train_one_epoch(epoch, 1)
                 self.logger.info(log)
-                self._save_checkpoint(epoch)
+                # self._save_checkpoint(epoch)
 
             ## call after the optimizer
             if self.lr_scheduler is not None:
@@ -274,16 +275,28 @@ class RACNN_Trainer():
         weight_softmax_1 = np.squeeze(params_classifier_1[-2].data.cpu().numpy())   
         weight_softmax_2 = np.squeeze(params_classifier_2[-2].data.cpu().numpy())
         
+        def isNaN(tensor):
+            return (tensor != tensor).any()
+
         f_conv_0, f_conv_1, f_conv_2 = [], [], []
         def hook_feature_conv_scale_0(module, input, output):
             # print("#################in hook feature!")
             f_conv_0.clear()
+            if isNaN(output):
+                print("Not A Number at hook_feature_conv_scale_0!")
+                input()
             f_conv_0.append(output.data.cpu().numpy())
         def hook_feature_conv_scale_1(module, input, output):
             f_conv_1.clear()
+            if isNaN(output):
+                print("Not A Number at hook_feature_conv_scale_1!")
+                input()
             f_conv_1.append(output.data.cpu().numpy())
         def hook_feature_conv_scale_2(module, input, output):
             f_conv_2.clear()
+            if isNaN(output):
+                print("Not A Number at hook_feature_conv_scale_2!")
+                input()
             f_conv_2.append(output.data.cpu().numpy())
 
 
@@ -327,7 +340,8 @@ class RACNN_Trainer():
 
                 out_list, t_list = self.model(data, target.unsqueeze(1), loss_config) ## [B, NumClasses]
                 out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
-                # t_01, t_12 = t_list[0], t_list[1]
+                t_01, t_12 = t_list[0], t_list[1]
+                print(f"train: {epoch}-{batch_idx}: theta: {t_01} // theta: {t_12}")
 
                 ### Classification loss
                 cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
@@ -364,11 +378,20 @@ class RACNN_Trainer():
                 rank_loss_2=0.0
                 for batch_inner_id, d in enumerate(weight_softmax_0_gt):
                     cpudata = ListSpecificBatchDatatoCPU(t_list[0:2],batch_inner_id)
-                    count0_fullsize,count0_masked,count1_fullsize,count1_masked = self.drawer.camforCountWithZoomIn(epoch, 
+                    count0_fullsize, count0_masked, count1_fullsize, count1_masked = self.drawer.camforCountWithZoomIn(epoch, 
                                     weight_softmax_0_gt[batch_inner_id], f_conv_0[-1][batch_inner_id], 
                                     weight_softmax_1_gt[batch_inner_id], f_conv_1[-1][batch_inner_id], 
                                     weight_softmax_2_gt[batch_inner_id], f_conv_2[-1][batch_inner_id], 
                                     img_path[batch_inner_id],2,cpudata)
+                    
+                    if count0_fullsize == 0 or count0_masked == 0 or count1_fullsize == 0 or count1_masked == 0:
+                        print(t_list[0])
+                        print(t_list[1])
+                        print('count0_fullsize: ', count0_fullsize)
+                        print('count0_masked: ', count0_masked)
+                        print('count1_fullsize: ', count1_fullsize)
+                        print('count1_masked: ', count1_masked)
+                        input()
                     rank_loss_1 += self.criterion.RankingLossDivideByCount(gt_probs_0, count0_fullsize, gt_probs_1, count0_masked, margin=self.margin)
                     rank_loss_2 += self.criterion.RankingLossDivideByCount(gt_probs_1, count1_fullsize, gt_probs_2, count1_masked, margin=self.margin)                
                     

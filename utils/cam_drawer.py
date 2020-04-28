@@ -4,6 +4,8 @@ import cv2, torch, os
 from skimage.measure import label, regionprops
 # from keras import backend as K
 
+def isNaN(num):
+    return (num != num).sum()
 
 def write_text_to_img(img, text, color=(255, 255, 255), org=(30,50), fontScale = 0.5):
     font = cv2.FONT_HERSHEY_SIMPLEX 
@@ -127,7 +129,7 @@ def returnCAM(feature_conv, weight_softmax, feature_cov_is_3=False):
     cam = weight_softmax.dot(feature_conv.reshape((nc, h*w)))
     cam = cam.reshape(h, w)
     cam = cam - np.min(cam)
-    cam_img = cam / np.max(cam)
+    cam_img = cam / (np.max(cam)+1e-7)
     cam_img = np.uint8(255 * cam_img)
     return cam_img
 
@@ -239,151 +241,192 @@ class CAMDrawer():
         # render the CAM and output
         img = cv2.imread(img_path, -1) ## [H, W, C]
         # print("path", img)
-        if isinstance(theta, list):            
-            assert lvl == len(theta), f"Error: lvl {lvl} should equal to len(theta): {theta}"
-            img_tensor = torch.from_numpy(img).type(torch.FloatTensor).unsqueeze(0)
-            img_tensor.detach()
-            img_tensor_scale0 = img_tensor.permute(0,3,1,2) ## [B, H, W, C] --> [B, C, H, W]
-            img_tensor_scale1 = image_sampler(img_tensor_scale0, theta[0])
-            img_tensor_scale2 = image_sampler(img_tensor_scale1, theta[1])
+        if isinstance(theta, list):
+            with torch.no_grad():      
+                assert lvl == len(theta), f"Error: lvl {lvl} should equal to len(theta): {len(theta)}"
+                img_tensor = torch.from_numpy(img).type(torch.FloatTensor).unsqueeze(0)
+                # img_tensor.detach()
+                img_tensor_scale0 = img_tensor.permute(0,3,1,2) ## [B, H, W, C] --> [B, C, H, W]
+                img_tensor_scale1 = image_sampler(img_tensor_scale0, theta[0])
+                img_tensor_scale2 = image_sampler(img_tensor_scale1, theta[1])
 
-            img_scale0 = np.asarray(img_tensor_scale0.permute(0,2,3,1).squeeze(0)) ## [B, H, W, C] --> [H, W, C]
-            img_tensor_scale1 = img_tensor_scale1.detach()
-            img_scale1 = np.asarray(img_tensor_scale1.permute(0,2,3,1).squeeze(0)) ## [B, H, W, C] --> [H, W, C]
-            img_tensor_scale2 = img_tensor_scale2.detach()
-            img_scale2 = np.asarray(img_tensor_scale2.permute(0,2,3,1).squeeze(0)) ## [B, H, W, C] --> [H, W, C]
-        
-            # print("img_scale0 shape", img_scale0.shape, " img_scale1 shape, ", img_scale1.shape,"img_scale2 shape ",img_scale2.shape)
+                for i, t in enumerate(theta):
+                    if isNaN(t): 
+                        print(f"Not A Number at theta[{i}]!")
+                        print(img_path)
+                        input()
+
+                if isNaN(img_tensor_scale0): 
+                    print("Not A Number at Scale 0!")
+                    print(img_path)
+                    input()
+                if isNaN(img_tensor_scale1): 
+                    print("Not A Number at Scale 1!")
+                    print(img_path)
+                    input()
+                if isNaN(img_tensor_scale2): 
+                    print("Not A Number at Scale 2!")
+                    print(img_path)
+                    input()
+
+                img_scale0 = np.asarray(img_tensor_scale0.permute(0,2,3,1).squeeze(0)) ## [B, C, H, W] --> [H, W, C]
+                # img_tensor_scale1 = img_tensor_scale1.detach()
+                img_scale1 = np.asarray(img_tensor_scale1.permute(0,2,3,1).squeeze(0)) ## [B, C, H, W] --> [H, W, C]
+                # img_tensor_scale2 = img_tensor_scale2.detach()
+                img_scale2 = np.asarray(img_tensor_scale2.permute(0,2,3,1).squeeze(0)) ## [B, C, H, W] --> [H, W, C]
             
-            # img_filename = os.path.basename(img_path)[:-4]
-            # sub_folder = 'jiarui-camforcount'
-            # save_folder = self.save_folder
-            # print("self save_folder is ",self.save_folder)
-            # save_folder = os.path.join(save_folder, sub_folder)
-            # save_folder = os.path.join(save_folder, f"{img_filename}")
-            # print("save folder name is ", save_folder)
-            # if not os.path.exists(save_folder):
-            #     os.makedirs(save_folder)
+                # print("img_scale0 shape", img_scale0.shape, " img_scale1 shape, ", img_scale1.shape,"img_scale2 shape ",img_scale2.shape)
+                
+                ## drawing for debug
+                # img_filename = os.path.basename(img_path)[:-4]
+                # sub_folder = 'jiarui-camforcount'
+                # save_folder = self.save_folder
+                # print("self save_folder is ",self.save_folder)
+                # save_folder = os.path.join(save_folder, sub_folder)
+                # save_folder = os.path.join(save_folder, f"{img_filename}")
+                # print("save folder name is ", save_folder)
+                # if not os.path.exists(save_folder):
+                #     os.makedirs(save_folder)
 
 
-            # output_img_path = os.path.join(save_folder, img_filename+'_'+str(epoch))
-            # print("out img path is ", output_img_path)
-            # cv2.imwrite(f"{output_img_path}-scale0-crop.jpg", img_scale0)
-            # cv2.imwrite(f"{output_img_path}-scale1-crop.jpg", img_scale1)
-            # cv2.imwrite(f"{output_img_path}-scale2-crop.jpg", img_scale2)
+                # output_img_path = os.path.join(save_folder, img_filename+'_'+str(epoch))
+                # print("out img path is ", output_img_path)
+                # cv2.imwrite(f"{output_img_path}-scale0-crop.jpg", img_scale0)
+                # cv2.imwrite(f"{output_img_path}-scale1-crop.jpg", img_scale1)
+                # cv2.imwrite(f"{output_img_path}-scale2-crop.jpg", img_scale2)
 
-            height, width, _ = img_scale0.shape
-            CAM0 = returnCAM(feature0, weight_softmax0, len(feature0.shape)==3)
-            CAM0 = cv2.resize(CAM0, (width, height))
-            # heatmap0 = cv2.applyColorMap(CAM0, cv2.COLORMAP_JET)
-            # result0 = heatmap0 * 0.3 + img_scale0 * 0.5
+                height, width, _ = img_scale0.shape
+                CAM0 = returnCAM(feature0, weight_softmax0, len(feature0.shape)==3)
+                CAM0 = cv2.resize(CAM0, (width, height))
+                # heatmap0 = cv2.applyColorMap(CAM0, cv2.COLORMAP_JET)
+                # result0 = heatmap0 * 0.3 + img_scale0 * 0.5
 
-            CAM1 = returnCAM(feature1, weight_softmax1, len(feature1.shape)==3)
-            CAM1 = cv2.resize(CAM1, (width, height))
-            # heatmap1 = cv2.applyColorMap(CAM1, cv2.COLORMAP_JET)
-            # result1 = heatmap1 * 0.3 + img_scale1 * 0.5
-            
-            CAM2 = returnCAM(feature2, weight_softmax2, len(feature2.shape)==3)
-            CAM2 = cv2.resize(CAM2, (width, height))
-            # heatmap2 = cv2.applyColorMap(CAM2, cv2.COLORMAP_JET)
-            # result2 = heatmap2 * 0.3 + img_scale2 * 0.5
-            
-            CAM0_tmp = CAM0/255
-            count0_fullsize = np.sum(CAM0_tmp[0:height, 0:width])/(width*height)
-            CAM1_tmp = CAM1/255
-            count1_fullsize = np.sum(CAM1_tmp[0:height, 0:width])/(width*height)
+                CAM1 = returnCAM(feature1, weight_softmax1, len(feature1.shape)==3)
+                CAM1 = cv2.resize(CAM1, (width, height))
+                # heatmap1 = cv2.applyColorMap(CAM1, cv2.COLORMAP_JET)
+                # result1 = heatmap1 * 0.3 + img_scale1 * 0.5
+                
+                CAM2 = returnCAM(feature2, weight_softmax2, len(feature2.shape)==3)
+                CAM2 = cv2.resize(CAM2, (width, height))
+                # heatmap2 = cv2.applyColorMap(CAM2, cv2.COLORMAP_JET)
+                # result2 = heatmap2 * 0.3 + img_scale2 * 0.5
+                
+                if isNaN(CAM0): 
+                    print("Not A Number at CAM0!")
+                    print(img_path)
+                    input()
+                if isNaN(CAM1): 
+                    print("Not A Number at CAM1!")
+                    print(img_path)
+                    input()
+                if isNaN(CAM2): 
+                    print("Not A Number at CAM2!")
+                    print(img_path)
+                    input()
 
-            # cv2.imwrite(f"{output_img_path}-scale0-cam.jpg", result0)
-            # cv2.imwrite(f"{output_img_path}-scale1-cam.jpg", result1)
-            # cv2.imwrite(f"{output_img_path}-scale2-cam.jpg", result2)
+                CAM0_tmp = CAM0/255
+                # count0_fullsize = np.sum(CAM0_tmp[0:height, 0:width])/(width*height)
+                count0_fullsize = np.sum(CAM0_tmp)/(width*height)
 
-            # print("theta", theta)
-            out_len_01 = 256*theta[0][0][2].item()
-            out_center_01_x = (1 + theta[0][0][0].item()) * 128
-            out_center_01_y = (1 + theta[0][0][1].item()) * 128   
+                CAM1_tmp = CAM1/255
+                # count1_fullsize = np.sum(CAM1_tmp[0:height, 0:width])/(width*height)
+                count1_fullsize = np.sum(CAM1_tmp)/(width*height)
 
-            out_len_12 = 256*theta[1][0][2].item()
-            out_center_12_x = (1 + theta[1][0][0].item()) * 128
-            out_center_12_y = (1 + theta[1][0][1].item()) * 128    
+                # cv2.imwrite(f"{output_img_path}-scale0-cam.jpg", result0)
+                # cv2.imwrite(f"{output_img_path}-scale1-cam.jpg", result1)
+                # cv2.imwrite(f"{output_img_path}-scale2-cam.jpg", result2)
 
-            # print("scale 0,", out_len_01, out_center_01_x ,out_center_01_y)
-            # print("scale 1,", out_len_12, out_center_12_x ,out_center_12_y)
-            upper_01_x =int(out_center_01_x - out_len_01/2)
-            upper_01_y =int(out_center_01_y - out_len_01/2)
-            lower_01_x =int(out_center_01_x + out_len_01/2)
-            lower_01_y =int(out_center_01_y + out_len_01/2)
-            
-            
-            upper_12_x =int(out_center_12_x - out_len_12/2)
-            upper_12_y =int(out_center_12_y - out_len_12/2)
-            lower_12_x =int(out_center_12_x + out_len_12/2)
-            lower_12_y =int(out_center_12_y + out_len_12/2)
-            # cv2.rectangle(
-            #     img_scale1, 
-            #     (int(out_center_12_x - out_len_12/2), int(out_center_12_y - out_len_12/2)), 
-            #     (int(out_center_12_x + out_len_12/2), int(out_center_12_y + out_len_12/2)), 
-            #     (0, 255, 255), -1) # cropped region by APN
-            # print("coordinate ", int(out_center_12_x - out_len_12/2), int(out_center_12_y - out_len_12/2),int(out_center_12_x + out_len_12/2), int(out_center_12_y + out_len_12/2))
+                
 
-            # cv2.rectangle(
-            #     CAM0, 
-            #     (0,0), 
-            #     (width,upper_01_y),
-            #     (0, 0, 0), -1) # cropped region by APN
-            # cv2.rectangle(
-            #     CAM0, 
-            #     (0,0), 
-            #     (upper_01_x,height),
-            #     (0, 0, 0), -1)
-            # cv2.rectangle(
-            #     CAM0, 
-            #     (0,lower_01_y), 
-            #     (width,height),
-            #     (0, 0, 0), -1)
-            # cv2.rectangle(
-            #     CAM0, 
-            #     (lower_01_x,0), 
-            #     (width,height),
-            #     (0, 0, 0), -1)     
-            # # print("img_scale1 shape", img_scale1.shape)
-            # # cv2.imwrite(f"{output_img_path}-scale0-orignWithZoomin.jpg", CAM0)
-            # cv2.rectangle(
-            #     CAM1, 
-            #     (0,0), 
-            #     (width,upper_12_y),
-            #     (0, 0, 0), -1) # cropped region by APN
-            # cv2.rectangle(
-            #     CAM1, 
-            #     (0,0), 
-            #     (upper_12_x,height),
-            #     (0, 0, 0), -1)
-            # cv2.rectangle(
-            #     CAM1, 
-            #     (0,lower_12_y), 
-            #     (width,height),
-            #     (0, 0, 0), -1)
-            # cv2.rectangle(
-            #     CAM1, 
-            #     (lower_12_x,0), 
-            #     (width,height),
-            #     (0, 0, 0), -1)     
-            # print("img_scale1 shape", img_scale1.shape)
+                # print("theta", theta)
+                out_len_01 = 256*theta[0][0][2].item()
+                out_center_01_x = (1 + theta[0][0][0].item()) * 128
+                out_center_01_y = (1 + theta[0][0][1].item()) * 128   
 
+                out_len_12 = 256*theta[1][0][2].item()
+                out_center_12_x = (1 + theta[1][0][0].item()) * 128
+                out_center_12_y = (1 + theta[1][0][1].item()) * 128    
 
-            CAM0_masked = CAM0/255
-            count0_masked = np.sum(CAM0_masked[upper_01_y:lower_01_y, upper_01_x:lower_01_x])/((lower_01_x-upper_01_x)*(lower_01_y-upper_01_y))
-            CAM1_masked = CAM1/255
-            count1_masked = np.sum(CAM1_masked[upper_12_y:lower_12_y, upper_12_x:lower_12_x])/((lower_12_x-upper_12_x)*(lower_12_y-upper_12_y))
+                # print("scale 0,", out_len_01, out_center_01_x ,out_center_01_y)
+                # print("scale 1,", out_len_12, out_center_12_x ,out_center_12_y)
+                upper_01_x =int(out_center_01_x - out_len_01/2)
+                upper_01_y =int(out_center_01_y - out_len_01/2)
+                lower_01_x =int(out_center_01_x + out_len_01/2)
+                lower_01_y =int(out_center_01_y + out_len_01/2)
+                
+                
+                upper_12_x =int(out_center_12_x - out_len_12/2)
+                upper_12_y =int(out_center_12_y - out_len_12/2)
+                lower_12_x =int(out_center_12_x + out_len_12/2)
+                lower_12_y =int(out_center_12_y + out_len_12/2)
+                # cv2.rectangle(
+                #     img_scale1, 
+                #     (int(out_center_12_x - out_len_12/2), int(out_center_12_y - out_len_12/2)), 
+                #     (int(out_center_12_x + out_len_12/2), int(out_center_12_y + out_len_12/2)), 
+                #     (0, 255, 255), -1) # cropped region by APN
+                # print("coordinate ", int(out_center_12_x - out_len_12/2), int(out_center_12_y - out_len_12/2),int(out_center_12_x + out_len_12/2), int(out_center_12_y + out_len_12/2))
 
-            # cv2.imwrite(f"{output_img_path}-scale0-orignWithZoomin.jpg", CAM0)
-            # cv2.imwrite(f"{output_img_path}-scale1-orignWithZoomin.jpg", CAM1)
-
-            # print('count 0 fullsize:', count0_fullsize, "count 1 fullsize:",count1_fullsize)
-            # print('count 0 zoomin:', count0_masked, "count 1 zoomin:",count1_masked)
+                # cv2.rectangle(
+                #     CAM0, 
+                #     (0,0), 
+                #     (width,upper_01_y),
+                #     (0, 0, 0), -1) # cropped region by APN
+                # cv2.rectangle(
+                #     CAM0, 
+                #     (0,0), 
+                #     (upper_01_x,height),
+                #     (0, 0, 0), -1)
+                # cv2.rectangle(
+                #     CAM0, 
+                #     (0,lower_01_y), 
+                #     (width,height),
+                #     (0, 0, 0), -1)
+                # cv2.rectangle(
+                #     CAM0, 
+                #     (lower_01_x,0), 
+                #     (width,height),
+                #     (0, 0, 0), -1)     
+                # # print("img_scale1 shape", img_scale1.shape)
+                # # cv2.imwrite(f"{output_img_path}-scale0-orignWithZoomin.jpg", CAM0)
+                # cv2.rectangle(
+                #     CAM1, 
+                #     (0,0), 
+                #     (width,upper_12_y),
+                #     (0, 0, 0), -1) # cropped region by APN
+                # cv2.rectangle(
+                #     CAM1, 
+                #     (0,0), 
+                #     (upper_12_x,height),
+                #     (0, 0, 0), -1)
+                # cv2.rectangle(
+                #     CAM1, 
+                #     (0,lower_12_y), 
+                #     (width,height),
+                #     (0, 0, 0), -1)
+                # cv2.rectangle(
+                #     CAM1, 
+                #     (lower_12_x,0), 
+                #     (width,height),
+                #     (0, 0, 0), -1)     
+                # print("img_scale1 shape", img_scale1.shape)
 
 
+                CAM0_masked = CAM0/255
+                count0_masked = np.sum(CAM0_masked[upper_01_y:lower_01_y, upper_01_x:lower_01_x])/((lower_01_x-upper_01_x)*(lower_01_y-upper_01_y)+1e-7)
+                CAM1_masked = CAM1/255
+                count1_masked = np.sum(CAM1_masked[upper_12_y:lower_12_y, upper_12_x:lower_12_x])/((lower_12_x-upper_12_x)*(lower_12_y-upper_12_y)+1e-7)
 
-            return count0_fullsize,count0_masked,count1_fullsize,count1_masked
+                # cv2.imwrite(f"{output_img_path}-scale0-orignWithZoomin.jpg", CAM0)
+                # cv2.imwrite(f"{output_img_path}-scale1-orignWithZoomin.jpg", CAM1)
+
+                # print('count 0 fullsize:', count0_fullsize, "count 1 fullsize:",count1_fullsize)
+                # print('count 0 zoomin:', count0_masked, "count 1 zoomin:",count1_masked)
+
+
+
+                return count0_fullsize, count0_masked, count1_fullsize, count1_masked
+        else:
+            raise NotImplementedError
 
     def draw_single_cam(self, epoch, gt_lbl, img_path, prob, weight_softmax, feature, lvl=0, theta=None, sub_folder=None, GT=None):
         ## make dir

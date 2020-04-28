@@ -59,6 +59,7 @@ class TCLoss(nn.Module):
    
     def RankingLossDivideByCount(self, prob_0, count0, prob_1, count1, margin):
         loss = prob_0/count0 - prob_1/count1 + margin
+        # loss = prob_0*count1 - prob_1*count0 + margin
         return torch.clamp(loss, min=0.0)
 
 
