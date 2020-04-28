@@ -234,7 +234,7 @@ class RACNN(nn.Module):
         x2 = F.grid_sample(x1, self.grid_sampler(t1), align_corners=False, padding_mode='border') ## [B, 3, H, W] sampled using grid parameters
         out_2, _ = self.classification(x2, lvl=2)
 
-        print("tl list is ", [t0, t1])
+        # print("tl list is ", [t0, t1])
         return [out_0, out_1, out_2], [t0, t1]
 
     def freeze_network(self, module):

@@ -321,10 +321,10 @@ class RACNN_Trainer():
                 if self.time_consistency:
                     data = data.view(B*3, 3, H, W)
                     target = target.view(B*3)
-                print("current batch id : ",batch_idx, "idx is ", idx)
-                print("target.shape", target.shape)
-                print("data.shape", data.shape)
-                print("current img path: ",self.trainloader.dataset.get_fname(idx))
+                # print("current batch id : ",batch_idx, "idx is ", idx)
+                # print("target.shape", target.shape)
+                # print("data.shape", data.shape)
+                # print("current img path: ",self.trainloader.dataset.get_fname(idx))
 
                 out_list, t_list = self.model(data, target.unsqueeze(1), loss_config) ## [B, NumClasses]
                 out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
@@ -386,7 +386,7 @@ class RACNN_Trainer():
                     # count2 = camforCount(weight_softmax_2_gt[batch_inner_id], f_conv_2[-1][batch_inner_id], img_path[batch_inner_id])
                     # rank_loss_1 += self.criterion.RankingLossDivideByCount(gt_probs_0, count0, gt_probs_1, count1, margin=self.margin)
                     # rank_loss_2 += self.criterion.RankingLossDivideByCount(gt_probs_1, count1, gt_probs_2, count2, margin=self.margin)                
-                rank_loss = rank_loss_1.sum() + rank_loss_2.sum()
+                rank_loss = 0.01*(rank_loss_1.sum() + rank_loss_2.sum())
                 
 
 
@@ -634,7 +634,8 @@ class RACNN_Trainer():
                 write_video_from_images(cam_path_scale_2, videoname_2)
                 shutil.rmtree(cam_path_scale_2)
 
-                draw_fig(self.log_folder)
+                ## this code has a bug so be commented out
+                # draw_fig(self.log_folder)
                 h0.remove()
                 h1.remove()
                 h2.remove()
