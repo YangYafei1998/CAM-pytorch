@@ -1,6 +1,11 @@
 from torch import nn
 import torch
 import torch.nn.functional as F
+import numpy as np
+import cv2
+
+
+
 
 class TCLoss(nn.Module):
     
@@ -48,7 +53,16 @@ class TCLoss(nn.Module):
 
     def PairwiseRankingLoss(self, prob_0, prob_1, margin):
         loss = prob_0 - prob_1 + margin
+        # print("prob0 .shape",prob_0.shape )
         return torch.clamp(loss, min=0.0)
+   
+   
+    def RankingLossDivideByCount(self, prob_0, count0, prob_1, count1, margin):
+        loss = prob_0/count0 - prob_1/count1 + margin
+        return torch.clamp(loss, min=0.0)
+
+
+
 
     def MarginLoss(self, prob, target, positive_margin, negative_margin):
         target_ = torch.FloatTensor(target.shape[0], self.num_classes)

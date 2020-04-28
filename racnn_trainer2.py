@@ -58,6 +58,17 @@ def ListDatatoCPU(list_data):
         cpu_list_data.append(d.cpu())
     return cpu_list_data
 
+
+def ListSpecificBatchDatatoCPU(list_data, batch):
+    assert isinstance(list_data, list)
+
+    cpu_list_data = []
+    for i in range(0,len(list_data)):
+        # print("unsqueeze ",list_data[i][batch].unsqueeze(0))
+        cpu_list_data.append(list_data[i][batch].unsqueeze(0).cpu())
+        # print("cpu list data, ",cpu_list_data )
+    return cpu_list_data
+
 def compute_acc(out, target, batch_size):
     correct = (torch.max(out, dim=1)[1].view(target.size()).data == target.data).sum()
     return 100. * correct / batch_size
@@ -88,15 +99,19 @@ class RACNN_Trainer():
             self.device = torch.device(cuda_id)
         else:
             self.device = torch.device("cpu")
-        
+
         self.drawer = CAMDrawer(self.result_folder, bar=0.8)
         self.draw_cams = True
 
         self.model = model.to(self.device)
+        if config['resume'] is not None:
+            pass
+            ## resume the network
+            self._resume_checkpoint(config['resume'])
+
         self.criterion = criterion
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
-        self.start_epoch = 0
 
         ## Hyper-parameters
         self.interleaving_step = config['interleave']
@@ -104,7 +119,7 @@ class RACNN_Trainer():
         self.max_epoch = config['max_epoch']
         self.time_consistency = config.get('temporal', False) ## default is false
         if self.time_consistency:
-            self.tc_weight = config['tc_weight']
+            self.tc_weight = config['temp_consistency_weight']
 
         self.save_period = config['ckpt_save_period']
         batch_size = config['batch_size']
@@ -112,25 +127,20 @@ class RACNN_Trainer():
         self.mini_train = config.get('mini_train', False)
 
         if config['disable_workers']:
-            self.trainloader = torch.utils.data.DataLoader(
-                train_dataset, batch_size=batch_size, shuffle=True, num_workers=0) 
-            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=0) 
-            self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
+            self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0, drop_last=True) 
+            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0, drop_last=True) 
+            self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0, drop_last=True) 
         else:
-            self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4) 
-            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
-            self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4) 
-
-        if config['resume'] is not None:
-            pass
-            ## resume the network
-            self._resume_checkpoint(config['resume'])
+            self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True) 
+            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4, drop_last=True) 
+            self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4, drop_last=True) 
 
         self.augmenter = DataAugmentation()
 
 
+
     ## save checkpoint including model and other relevant information
-    def _save_checkpoint(self, epoch, save_best=False, pretrain_ckp=False, name='train'):
+    def _save_checkpoint(self, epoch, save_best=False, pretrain_ckp=False):
         arch = type(self.model).__name__
         state = {
             'model': arch,
@@ -142,7 +152,7 @@ class RACNN_Trainer():
         if pretrain_ckp:
             filename = os.path.join(
                 self.ckpt_folder,
-                f'pretrain-checkpoint-{name}-e{epoch}.pth'
+                'pretrain-checkpoint-e{}.pth'.format(epoch)
             )
         else:
             filename = os.path.join(
@@ -169,7 +179,6 @@ class RACNN_Trainer():
 
         # load architecture params from checkpoint.
         self.model.load_state_dict(checkpoint['state_dict'], strict=False)
-        print("CKPT KEYS: ", checkpoint.keys())
         # if checkpoint['config']['model'] != self.config['model']:
         #     msg = ("Warning: Architecture configuration given in config file is"
         #            " different from that of checkpoint."
@@ -178,21 +187,20 @@ class RACNN_Trainer():
         # else:
         #     self.model.load_state_dict(checkpoint['state_dict'], strict=False)
 
-        if not load_pretrain:
-            self.optimizer.load_state_dict(checkpoint['optimizer'])
-            # uncomment this line if you want to use the resumed optimizer
-            # load optimizer state from checkpoint only when optimizer type is not changed.
-            # ckpt_opt_type = checkpoint['config']['optimizer']['type']
-            # if ckpt_opt_type != self.config['optimizer']['type']:
-            #     msg = ("Warning: Optimizer type given in config file is different from"
-            #         "that of checkpoint.  Optimizer parameters not being resumed.")
-            #     self.logger.warning(msg)
-            # else:
-            #     self.optimizer.load_state_dict(checkpoint['optimizer'])
+        # if not load_pretrain:
+        #     # uncomment this line if you want to use the resumed optimizer
+        #     # load optimizer state from checkpoint only when optimizer type is not changed.
+        #     ckpt_opt_type = checkpoint['config']['optimizer']['type']
+        #     if ckpt_opt_type != self.config['optimizer']['type']:
+        #         msg = ("Warning: Optimizer type given in config file is different from"
+        #             "that of checkpoint.  Optimizer parameters not being resumed.")
+        #         self.logger.warning(msg)
+        #     else:
+        #         self.optimizer.load_state_dict(checkpoint['optimizer'])
 
-        # self.logger = checkpoint['logger']
-        msg = "Checkpoint '{}' (epoch {}) loaded"
-        self.logger.info(msg .format(resume_path, self.start_epoch))
+        # # self.logger = checkpoint['logger']
+        # msg = "Checkpoint '{}' (epoch {}) loaded"
+        # self.logger.info(msg .format(resume_path, self.start_epoch))
         if not load_pretrain:
             print("load to resume")
         else:
@@ -201,12 +209,12 @@ class RACNN_Trainer():
     ## pre-train session
     def pretrain(self):
         # for _ in range(5):
-        for i in range(7):
+        for _ in range(5):
             self.pretrain_classification()
-            self._save_checkpoint(i, pretrain_ckp=True, name='pre_cls')
-        for i in range(4):
+        self._save_checkpoint(0, pretrain_ckp=True)
+        for _ in range(3):
             self.pretrain_apn()
-            self._save_checkpoint(i, pretrain_ckp=True, name='pre_apn')
+        self._save_checkpoint(1, pretrain_ckp=True)
         print("Pre-train Finished")
 
 
@@ -236,7 +244,7 @@ class RACNN_Trainer():
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
             
-            ## testing            
+            ## testing
             self.logger.info(f"Validation:")
             log = self.test_one_epoch(epoch)
             self.logger.info(log)
@@ -267,22 +275,22 @@ class RACNN_Trainer():
         weight_softmax_1 = np.squeeze(params_classifier_1[-2].data.cpu().numpy())   
         weight_softmax_2 = np.squeeze(params_classifier_2[-2].data.cpu().numpy())
         
-        # f_conv_0, f_conv_1, f_conv_2 = [], [], []
-        # def hook_feature_conv_scale_0(module, input, output):
-        #     # print("#################in hook feature!")
-        #     f_conv_0.clear()
-        #     f_conv_0.append(output.data.cpu().numpy())
-        # def hook_feature_conv_scale_1(module, input, output):
-        #     f_conv_1.clear()
-        #     f_conv_1.append(output.data.cpu().numpy())
-        # def hook_feature_conv_scale_2(module, input, output):
-        #     f_conv_2.clear()
-        #     f_conv_2.append(output.data.cpu().numpy())
+        f_conv_0, f_conv_1, f_conv_2 = [], [], []
+        def hook_feature_conv_scale_0(module, input, output):
+            # print("#################in hook feature!")
+            f_conv_0.clear()
+            f_conv_0.append(output.data.cpu().numpy())
+        def hook_feature_conv_scale_1(module, input, output):
+            f_conv_1.clear()
+            f_conv_1.append(output.data.cpu().numpy())
+        def hook_feature_conv_scale_2(module, input, output):
+            f_conv_2.clear()
+            f_conv_2.append(output.data.cpu().numpy())
 
 
-        # h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
-        # h1 = self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
-        # h2 = self.model.conv_scale_2[-2].register_forward_hook(hook_feature_conv_scale_2)
+        h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
+        h1 = self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
+        h2 = self.model.conv_scale_2[-2].register_forward_hook(hook_feature_conv_scale_2)
         # print("h0, ", h0)
 
         
@@ -299,10 +307,10 @@ class RACNN_Trainer():
 
             if self.mini_train and batch_idx == 5: break
 
-            # ## data augmentation via imgaug
-            # if self.trainloader.dataset.augmentation:
-            #     data = self.augmenter(data)
-            #     # print(data)
+            ## data augmentation via imgaug
+            if self.trainloader.dataset.augmentation:
+                data = self.augmenter(data)
+                # print(data)
             
             # data, target = data.to(self.device), target.to(self.device)
             data, target = data.to(self.device), target.to(self.device)
@@ -346,23 +354,30 @@ class RACNN_Trainer():
                 gt_probs_1 = probs_1[list(range(B)), target]
                 gt_probs_2 = probs_2[list(range(B)), target]
                 
-                rank_loss_1 = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
-                rank_loss_2 = self.criterion.PairwiseRankingLoss(gt_probs_1, gt_probs_2, margin=self.margin)
-                print("rank_loss_1 is,",rank_loss_1)
-                print("rank_loss_2 is,",rank_loss_2)
-
-                rank_loss = rank_loss_1.sum() + rank_loss_2.sum()
-                print("rank_loss is, ", rank_loss)
-                # img_path = self.trainloader.dataset.get_fname(idx)
-                # rank_loss_1=0.0
-                # rank_loss_2=0.0
-                # for batch_inner_id, d in enumerate(weight_softmax_0_gt):                    
-                #     count0 = camforCount(weight_softmax_0_gt[batch_inner_id], f_conv_0[-1][batch_inner_id], img_path[0])
-                #     count1 = camforCount(weight_softmax_1_gt[batch_inner_id], f_conv_1[-1][batch_inner_id], img_path[0])
-                #     count2 = camforCount(weight_softmax_2_gt[batch_inner_id], f_conv_2[-1][batch_inner_id], img_path[0])
-                #     rank_loss_1 += self.criterion.RankingLossDivideByCount(gt_probs_0, count0, gt_probs_1, count1, margin=self.margin)
-                #     rank_loss_2 += self.criterion.RankingLossDivideByCount(gt_probs_1, count1, gt_probs_2, count2, margin=self.margin)                
+                # rank_loss_1 = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
+                # rank_loss_2 = self.criterion.PairwiseRankingLoss(gt_probs_1, gt_probs_2, margin=self.margin)
                 # rank_loss = rank_loss_1.sum() + rank_loss_2.sum()
+                
+                img_path = self.trainloader.dataset.get_fname(idx)
+                rank_loss_1=0.0
+                rank_loss_2=0.0
+                for batch_inner_id, d in enumerate(weight_softmax_0_gt):
+                    cpudata = ListSpecificBatchDatatoCPU(t_list[0:2],batch_inner_id)
+                    count0_fullsize,count0_masked,count1_fullsize,count1_masked = self.drawer.camforCountWithZoomIn(epoch, 
+                                    weight_softmax_0_gt[batch_inner_id], f_conv_0[-1][batch_inner_id], 
+                                    weight_softmax_1_gt[batch_inner_id], f_conv_1[-1][batch_inner_id], 
+                                    weight_softmax_2_gt[batch_inner_id], f_conv_2[-1][batch_inner_id], 
+                                    img_path[batch_inner_id],2,cpudata)
+                    rank_loss_1 += self.criterion.RankingLossDivideByCount(gt_probs_0, count0_fullsize, gt_probs_1, count0_masked, margin=self.margin)
+                    rank_loss_2 += self.criterion.RankingLossDivideByCount(gt_probs_1, count1_fullsize, gt_probs_2, count1_masked, margin=self.margin)                
+                    
+                    # count0 = camforCount(weight_softmax_0_gt[batch_inner_id], f_conv_0[-1][batch_inner_id], img_path[0])                   
+                    # count1 = camforCount(weight_softmax_1_gt[batch_inner_id], f_conv_1[-1][batch_inner_id], img_path[0])
+                    # count2 = camforCount(weight_softmax_2_gt[batch_inner_id], f_conv_2[-1][batch_inner_id], img_path[0])
+                    # rank_loss_1 += self.criterion.RankingLossDivideByCount(gt_probs_0, count0, gt_probs_1, count1, margin=self.margin)
+                    # rank_loss_2 += self.criterion.RankingLossDivideByCount(gt_probs_1, count1, gt_probs_2, count2, margin=self.margin)                
+                rank_loss = rank_loss_1.sum() + rank_loss_2.sum()
+                
 
 
 
@@ -376,36 +391,22 @@ class RACNN_Trainer():
                     temp_loss_2 = self.criterion.TemporalConsistencyLoss(out_2[0::3], out_2[1::3], out_2[2::3], reduction='none')
                     temp_loss = temp_loss_0.sum() + temp_loss_1.sum() + temp_loss_2.sum()
 
-                    # ## NEW TEMPORAL COHERENCE LOSS
-                    # temp_loss += self.criterion.BatchContrastiveLoss(feat_hooked[0].squeeze().view(B, 3, -1))
-                    # temp_loss_meter.update(temp_loss.item(), 1)
-                    # feat_hooked.clear() ## clear for next batch
-                    
                 loss = 0.0
 
                 if loss_config == 0: ##'classification'
                     loss += cls_loss
-                    if self.time_consistency:
-                        loss += self.tc_weight*temp_loss
                 elif loss_config == 1: ##'apn'
                     loss += rank_loss
+                else: ##'whole'
+                    loss += (rank_loss + cls_loss + info_loss)
                 
+                if self.time_consistency:
+                    loss += self.tc_weight*temp_loss
+
                 loss.backward()
                 self.optimizer.step()
 
-                ## meter update
-
-                # print("loss_meter.shape, ",loss_meter.shape)
-                # print("loss.shape, ",loss.shape)
-                # print("cls_loss_meter.shape, ",cls_loss_meter.shape)
-                # print("cls_loss.shape, ",cls_loss.shape)
-                # print("rank_loss_meter.shape, ",rank_loss_meter.shape)
-                # print("rank_loss.shape, ",rank_loss.shape)               
-                print("loss.shape, ",loss)
-                # print("cls_loss_meter.shape, ",cls_loss_meter)
-                print("cls_loss.shape, ",cls_loss)
-                # print("rank_loss_meter.shape, ",rank_loss_meter)
-                print("rank_loss.shape, ",rank_loss)                               
+                    
                 loss_meter.update(loss, 1)
                 cls_loss_meter.update(cls_loss, 1)
                 rank_loss_meter.update(rank_loss, 1)
@@ -413,17 +414,10 @@ class RACNN_Trainer():
                     temp_loss_meter.update(temp_loss, 1)
                 # info_loss_meter.update(info_loss, 1)
                 # calculate accuracy
-                accuracy_0.update(compute_acc(out_0.detach(), target, B_out), 1)
-                accuracy_1.update(compute_acc(out_1.detach(), target, B_out), 1)
-                accuracy_2.update(compute_acc(out_2.detach(), target, B_out), 1)
-                
-                del out_0
-                del out_1
-                del out_2
-                del loss
-                torch.cuda.empty_cache()
-        
-        # h0.remove()
+                accuracy_0.update(compute_acc(out_0, target, B_out), 1)
+                accuracy_1.update(compute_acc(out_1, target, B_out), 1)
+                accuracy_2.update(compute_acc(out_2, target, B_out), 1)
+
 
         return {
             'cls_loss': cls_loss_meter.avg, 
@@ -435,6 +429,7 @@ class RACNN_Trainer():
             }
 
     ##
+
     def test_one_epoch(self, epoch):
         self.model.eval()
         
@@ -446,37 +441,32 @@ class RACNN_Trainer():
 
 
         with torch.no_grad():
-            # if self.draw_cams:
-            if self.draw_cams and epoch % self.save_period == 0:
-                # self._save_checkpoint(epoch)
-                ## weight
-                params_classifier_0 = list(self.model.classifier_0.parameters())
-                params_classifier_1 = list(self.model.classifier_1.parameters())
-                params_classifier_2 = list(self.model.classifier_2.parameters())
-                ## -2 because we have bias in the classifier
-                weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
-                weight_softmax_1 = np.squeeze(params_classifier_1[-2].data.cpu().numpy())
-                weight_softmax_2 = np.squeeze(params_classifier_2[-2].data.cpu().numpy())
+            params_classifier_0 = list(self.model.classifier_0.parameters())
+            params_classifier_1 = list(self.model.classifier_1.parameters())
+            params_classifier_2 = list(self.model.classifier_2.parameters())
+            ## -2 because we have bias in the classifier
+            weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
+            weight_softmax_1 = np.squeeze(params_classifier_1[-2].data.cpu().numpy())
+            weight_softmax_2 = np.squeeze(params_classifier_2[-2].data.cpu().numpy())
 
-                # hook the feature extractor instantaneously and remove it once data is hooked
-                f_conv_0, f_conv_1, f_conv_2 = [], [], []
-                def hook_feature_conv_scale_0(module, input, output):
-                    f_conv_0.clear()
-                    f_conv_0.append(output.data.cpu().numpy())
-                def hook_feature_conv_scale_1(module, input, output):
-                    f_conv_1.clear()
-                    f_conv_1.append(output.data.cpu().numpy())
-                def hook_feature_conv_scale_2(module, input, output):
-                    f_conv_2.clear()
-                    f_conv_2.append(output.data.cpu().numpy())
-                ## place hooker
-                h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
-                h1 = self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
-                h2 = self.model.conv_scale_2[-2].register_forward_hook(hook_feature_conv_scale_2)
-                print("saving CAMs")
+            # hook the feature extractor instantaneously and remove it once data is hooked
+            f_conv_0, f_conv_1, f_conv_2 = [], [], []
+            def hook_feature_conv_scale_0(module, input, output):
+                # print("called f conv 0")
+                f_conv_0.clear()
+                f_conv_0.append(output.data.cpu().numpy())
+            def hook_feature_conv_scale_1(module, input, output):
+                f_conv_1.clear()
+                f_conv_1.append(output.data.cpu().numpy())
+            def hook_feature_conv_scale_2(module, input, output):
+                f_conv_2.clear()
+                f_conv_2.append(output.data.cpu().numpy())
+            ## place hooker
+            h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
+            h1 = self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
+            h2 = self.model.conv_scale_2[-2].register_forward_hook(hook_feature_conv_scale_2)
 
-            
-            #for batch_idx, batch in tqdm.tqdm(
+        #for batch_idx, batch in tqdm.tqdm(
             #    enumerate(self.testloader), 
             #    total=len(self.testloader),
             #    desc='test'+': ', 
@@ -488,7 +478,8 @@ class RACNN_Trainer():
                 B = data.shape[0]
                 H, W = data.shape[-2:]
                 assert B == 1, "test batch size should be 1"
-
+                # print("currently in for loop")
+                # input()
                 # data [B, C, H, W]
                 out_list, t_list = self.model(data,target=None) ## [B, NumClasses]
                 out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
@@ -532,6 +523,17 @@ class RACNN_Trainer():
                 # rank_loss_1 = self.criterion.RankingLossDivideByCount(gt_probs_0, count0, gt_probs_1, count1, margin=self.margin)
                 # rank_loss_2 = self.criterion.RankingLossDivideByCount(gt_probs_1, count1, gt_probs_2, count2, margin=self.margin)
                 
+                
+                img_path = self.testloader.dataset.get_fname(idx)
+                count0_fullsize,count0_masked,count1_fullsize,count1_masked = self.drawer.camforCountWithZoomIn(epoch, 
+                                weight_softmax_0_gt , f_conv_0[-1] , 
+                                weight_softmax_1_gt , f_conv_1[-1] , 
+                                weight_softmax_2_gt , f_conv_2[-1] , 
+                                img_path[0],2,ListDatatoCPU(t_list[0:2]))
+                rank_loss_1 += self.criterion.RankingLossDivideByCount(gt_probs_0, count0_fullsize, gt_probs_1, count0_masked, margin=self.margin)
+                rank_loss_2 += self.criterion.RankingLossDivideByCount(gt_probs_1, count1_fullsize, gt_probs_2, count1_masked, margin=self.margin)                
+                
+
 
                 rank_loss = rank_loss_1.sum() + rank_loss_2.sum()
 
@@ -543,7 +545,7 @@ class RACNN_Trainer():
                 accuracy_1.update(compute_acc(out_1, target, B_out), 1)
                 accuracy_2.update(compute_acc(out_2, target, B_out), 1)
 
-                if (self.draw_cams and epoch % self.save_period == 0)  or epoch==0:
+                if (self.draw_cams and epoch % self.save_period == 0)  or epoch==0 or epoch == 1:
                     img_path = self.testloader.dataset.get_fname(idx)
                     # print(img_path)
                     # print("##########################3target ", target)
@@ -756,12 +758,6 @@ class RACNN_Trainer():
                 gt_center_y = (center_y - 128)/128
                 gt_len = (coordinates[:,3]-coordinates[:,1]+coordinates[:,2]-coordinates[:,0])/(2*256)
                 target_pos = torch.FloatTensor(np.stack([gt_center_x, gt_center_y, gt_len], axis=1)).to(self.device)
-
-                # gt_center_x = 0.3
-                # gt_center_y = 0.3
-                # gt_len = 0.4
-                # target_pos = torch.tensor([[gt_center_x, gt_center_y, gt_len]])
-                # target_pos = target_pos.repeat([B, 1]).to(self.device)
 
                 loss = F.mse_loss(t_01, target_pos, reduction='none').sum()
                 # print(loss)

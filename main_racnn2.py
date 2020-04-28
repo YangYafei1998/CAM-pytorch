@@ -14,7 +14,7 @@ import glob
 from models.new_dataloader import ImageDataset
 from models import TCLoss, RACNN, RACNN3Scale
 
-from racnn_trainer import RACNN_Trainer
+from racnn_trainer2 import RACNN_Trainer
 from racnn3_trainer import RACNN3_Trainer
 
 from utils.config import ConfigParser
@@ -48,15 +48,17 @@ def main(config):
     train_dataset = ImageDataset(
         # '/userhome/30/jrwang/3Ctrain/images/train_image_list_sorted_6.txt', 
         # '/userhome/30/jrwang/3Ctrain/images/train_image_label_sorted_6.txt', 
-        '/userhome/30/jrwang/debug6Ctrain/images/train_image_list_sorted_6.txt', 
-        '/userhome/30/jrwang/debug6Ctrain/images/train_image_label_sorted_6.txt', 
+        # '/userhome/30/jrwang/6Ctrain/images/train_image_list_sorted_6.txt', 
+        # '/userhome/30/jrwang/6Ctrain/images/train_image_label_sorted_6.txt',
+        'image_path_folder_6/train_image_list_sorted_6.txt', 
+        'image_path_folder_6/train_image_label_sorted_6.txt',  
         is_training=True, temporal_coherence=temporal)
 
 
 
     test_dataset = ImageDataset(
-        '/userhome/30/jrwang/test/images/test_image_list_sorted.txt', 
-        '/userhome/30/jrwang/test/images/test_image_label_sorted.txt', 
+        'image_path_folder/train_image_list_sorted.txt', 
+        'image_path_folder/train_image_label_sorted.txt', 
         is_training=False)
 
     ## network

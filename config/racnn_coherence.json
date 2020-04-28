@@ -1,7 +1,7 @@
 {
     "device": 0,
-    "max_epoch": 60,
-    "margin": 0.1,
+    "max_epoch": 70,
+    "margin": 0.05,
     "seed": 0,
     "disable_workers": false,
     "batch_size": 32,

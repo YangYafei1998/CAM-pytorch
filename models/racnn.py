@@ -24,7 +24,7 @@ class GridSampler(nn.Module):
         self.grid_Y = self.grid_Y.to(device).requires_grad_(False)
 
     def forward(self, theta):
-        ## theta \in [0, 1]
+        ## theta \in [0, 1], theta:tx, ty, tl
         B = theta.shape[0] ## batch size
         # print(theta.shape)
         theta = theta.unsqueeze(2).unsqueeze(3).unsqueeze(4)
