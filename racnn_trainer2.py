@@ -627,9 +627,9 @@ class RACNN_Trainer():
                 shutil.rmtree(cam_path_scale_2)
 
                 # draw_fig(self.log_folder)
-            h0.remove()
-            h1.remove()
-            h2.remove()
+                h0.remove()
+                h1.remove()
+                h2.remove()
 
 
         return {
