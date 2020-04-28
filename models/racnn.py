@@ -64,24 +64,24 @@ class RACNN(nn.Module):
             basemodel.layer2,
             basemodel.layer3
         )
-        self.base1 = nn.Sequential(
-            basemodel.conv1,
-            basemodel.bn1,
-            basemodel.relu,
-            basemodel.maxpool,
-            basemodel.layer1,
-            basemodel.layer2,
-            basemodel.layer3
-        )
-        self.base2 = nn.Sequential(
-            basemodel.conv1,
-            basemodel.bn1,
-            basemodel.relu,
-            basemodel.maxpool,
-            basemodel.layer1,
-            basemodel.layer2,
-            basemodel.layer3
-        )
+        # self.base1 = nn.Sequential(
+        #     basemodel.conv1,
+        #     basemodel.bn1,
+        #     basemodel.relu,
+        #     basemodel.maxpool,
+        #     basemodel.layer1,
+        #     basemodel.layer2,
+        #     basemodel.layer3
+        # )
+        # self.base2 = nn.Sequential(
+        #     basemodel.conv1,
+        #     basemodel.bn1,
+        #     basemodel.relu,
+        #     basemodel.maxpool,
+        #     basemodel.layer1,
+        #     basemodel.layer2,
+        #     basemodel.layer3
+        # )
 
         ## global average pooling
         self.gap = nn.AdaptiveAvgPool2d(1)
@@ -126,19 +126,19 @@ class RACNN(nn.Module):
             )
 
         ## attention proposal head between scales 0 and 1
-        self.apn_conv_01 = nn.Sequential(
-            nn.Conv2d(512, 64, kernel_size=1, bias=False),
-            nn.LeakyReLU(0.2),
-            )
-        self.apn_regress_01 = nn.Sequential(
-            nn.Linear(14*14*64, 1000, bias=True),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(1000, 3, bias=True),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Sigmoid() ## chosen
-        ) 
+        # self.apn_conv_01 = nn.Sequential(
+        #     nn.Conv2d(512, 64, kernel_size=1, bias=False),
+        #     nn.LeakyReLU(0.2),
+        #     )
+        # self.apn_regress_01 = nn.Sequential(
+        #     nn.Linear(14*14*64, 1000, bias=True),
+        #     nn.ReLU(),
+        #     nn.Dropout(0.5),
+        #     nn.Linear(1000, 3, bias=True),
+        #     nn.ReLU(),
+        #     nn.Dropout(0.5),
+        #     nn.Sigmoid() ## chosen
+        # ) 
         self.apn_map_flatten_01 = nn.Sequential(
             nn.Linear(14*14, 3, bias=True),
             nn.Sigmoid()
@@ -153,17 +153,19 @@ class RACNN(nn.Module):
             x = self.base(x)
             f_conv = self.conv_scale_0(x)
             f_gap = self.gap(f_conv)
-            return self.classifier_0(self.drop(f_gap).squeeze(2).squeeze(2)), f_gap, f_conv
+            return self.classifier_0(self.drop(f_gap).squeeze(2).squeeze(2)), f_conv
         elif lvl == 1:
-            x = self.base1(x)
+            # x = self.base1(x)
+            x = self.base(x)
             f_conv = self.conv_scale_1(x)
             f_gap = self.gap(f_conv)
-            return self.classifier_1(self.drop(f_gap).squeeze(2).squeeze(2)), f_gap, f_conv
+            return self.classifier_1(self.drop(f_gap).squeeze(2).squeeze(2)), f_conv
         elif lvl == 2:
-            x = self.base2(x)
+            # x = self.base2(x)
+            x = self.base(x)
             f_conv = self.conv_scale_2(x)
             f_gap = self.gap(f_conv)
-            return self.classifier_2(self.drop(f_gap).squeeze(2).squeeze(2)), f_gap, f_conv
+            return self.classifier_2(self.drop(f_gap).squeeze(2).squeeze(2)), f_conv
         else:
             raise NotImplementedError
             
@@ -193,8 +195,8 @@ class RACNN(nn.Module):
         # alternating between two modes
         if train_config == 1:
             self.freeze_network(self.base)
-            self.freeze_network(self.base1)
-            self.freeze_network(self.base2)
+            # self.freeze_network(self.base1)
+            # self.freeze_network(self.base2)
             self.freeze_network(self.conv_scale_0)
             self.freeze_network(self.conv_scale_1)
             self.freeze_network(self.conv_scale_2)
@@ -203,8 +205,8 @@ class RACNN(nn.Module):
             self.freeze_network(self.classifier_2)
         else:
             self.unfreeze_network(self.base)
-            self.unfreeze_network(self.base1)
-            self.unfreeze_network(self.base2)
+            # self.unfreeze_network(self.base1)
+            # self.unfreeze_network(self.base2)
             self.unfreeze_network(self.conv_scale_0)
             self.unfreeze_network(self.conv_scale_1)
             self.unfreeze_network(self.conv_scale_2)
@@ -217,20 +219,20 @@ class RACNN(nn.Module):
 
 
         ### Scale 0
-        out_0, f_gap_0, f_conv0 = self.classification(x, lvl=0)
+        out_0, f_conv0 = self.classification(x, lvl=0)
         
         ### Scale 1
         # t0 = self.apn_map(f_conv0, lvl=0) ## [B, 3]
         t0 = self.apn_map_chlwise(f_conv0, lvl=0) ## [B, 3]
-        grid = self.grid_sampler(t0) ## [B, H, W, 2]
-        x1 = F.grid_sample(x, grid, align_corners=False, padding_mode='border') ## [B, 3, H, W] sampled using grid parameters
-        out_1, f_gap_1, f_conv1 = self.classification(x1, lvl=1)
+        # grid = self.grid_sampler(t0) ## [B, H, W, 2]
+        x1 = F.grid_sample(x, self.grid_sampler(t0), align_corners=False, padding_mode='border') ## [B, 3, H, W] sampled using grid parameters
+        out_1, f_conv1 = self.classification(x1, lvl=1)
 
         ### Scale 2
         t1 = self.apn_map_chlwise(f_conv1, lvl=0) ## [B, 3]
-        grid = self.grid_sampler(t1) ## [B, H, W, 2]
-        x2 = F.grid_sample(x1, grid, align_corners=False, padding_mode='border') ## [B, 3, H, W] sampled using grid parameters
-        out_2, f_gap_2, f_conv2 = self.classification(x2, lvl=2)
+        # grid = self.grid_sampler(t1) ## [B, H, W, 2]
+        x2 = F.grid_sample(x1, self.grid_sampler(t1), align_corners=False, padding_mode='border') ## [B, 3, H, W] sampled using grid parameters
+        out_2, _ = self.classification(x2, lvl=2)
 
         print("tl list is ", [t0, t1])
         return [out_0, out_1, out_2], [t0, t1]

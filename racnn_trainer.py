@@ -93,14 +93,10 @@ class RACNN_Trainer():
         self.draw_cams = True
 
         self.model = model.to(self.device)
-        if config['resume'] is not None:
-            pass
-            ## resume the network
-            self._resume_checkpoint(config['resume'])
-
         self.criterion = criterion
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
+        self.start_epoch = 0
 
         ## Hyper-parameters
         self.interleaving_step = config['interleave']
@@ -108,7 +104,7 @@ class RACNN_Trainer():
         self.max_epoch = config['max_epoch']
         self.time_consistency = config.get('temporal', False) ## default is false
         if self.time_consistency:
-            self.tc_weight = config['temp_consistency_weight']
+            self.tc_weight = config['tc_weight']
 
         self.save_period = config['ckpt_save_period']
         batch_size = config['batch_size']
@@ -116,16 +112,21 @@ class RACNN_Trainer():
         self.mini_train = config.get('mini_train', False)
 
         if config['disable_workers']:
-            self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0) 
-            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
+            self.trainloader = torch.utils.data.DataLoader(
+                train_dataset, batch_size=batch_size, shuffle=True, num_workers=0) 
+            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=0) 
             self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
         else:
             self.trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4) 
             self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
             self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4) 
 
-        self.augmenter = DataAugmentation()
+        if config['resume'] is not None:
+            pass
+            ## resume the network
+            self._resume_checkpoint(config['resume'])
 
+        self.augmenter = DataAugmentation()
 
 
     ## save checkpoint including model and other relevant information
@@ -168,6 +169,7 @@ class RACNN_Trainer():
 
         # load architecture params from checkpoint.
         self.model.load_state_dict(checkpoint['state_dict'], strict=False)
+        print("CKPT KEYS: ", checkpoint.keys())
         # if checkpoint['config']['model'] != self.config['model']:
         #     msg = ("Warning: Architecture configuration given in config file is"
         #            " different from that of checkpoint."
@@ -176,20 +178,21 @@ class RACNN_Trainer():
         # else:
         #     self.model.load_state_dict(checkpoint['state_dict'], strict=False)
 
-        # if not load_pretrain:
-        #     # uncomment this line if you want to use the resumed optimizer
-        #     # load optimizer state from checkpoint only when optimizer type is not changed.
-        #     ckpt_opt_type = checkpoint['config']['optimizer']['type']
-        #     if ckpt_opt_type != self.config['optimizer']['type']:
-        #         msg = ("Warning: Optimizer type given in config file is different from"
-        #             "that of checkpoint.  Optimizer parameters not being resumed.")
-        #         self.logger.warning(msg)
-        #     else:
-        #         self.optimizer.load_state_dict(checkpoint['optimizer'])
+        if not load_pretrain:
+            self.optimizer.load_state_dict(checkpoint['optimizer'])
+            # uncomment this line if you want to use the resumed optimizer
+            # load optimizer state from checkpoint only when optimizer type is not changed.
+            # ckpt_opt_type = checkpoint['config']['optimizer']['type']
+            # if ckpt_opt_type != self.config['optimizer']['type']:
+            #     msg = ("Warning: Optimizer type given in config file is different from"
+            #         "that of checkpoint.  Optimizer parameters not being resumed.")
+            #     self.logger.warning(msg)
+            # else:
+            #     self.optimizer.load_state_dict(checkpoint['optimizer'])
 
-        # # self.logger = checkpoint['logger']
-        # msg = "Checkpoint '{}' (epoch {}) loaded"
-        # self.logger.info(msg .format(resume_path, self.start_epoch))
+        # self.logger = checkpoint['logger']
+        msg = "Checkpoint '{}' (epoch {}) loaded"
+        self.logger.info(msg .format(resume_path, self.start_epoch))
         if not load_pretrain:
             print("load to resume")
         else:
@@ -233,7 +236,7 @@ class RACNN_Trainer():
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
             
-            ## testing
+            ## testing            
             self.logger.info(f"Validation:")
             log = self.test_one_epoch(epoch)
             self.logger.info(log)
@@ -296,10 +299,10 @@ class RACNN_Trainer():
 
             if self.mini_train and batch_idx == 5: break
 
-            ## data augmentation via imgaug
-            if self.trainloader.dataset.augmentation:
-                data = self.augmenter(data)
-                # print(data)
+            # ## data augmentation via imgaug
+            # if self.trainloader.dataset.augmentation:
+            #     data = self.augmenter(data)
+            #     # print(data)
             
             # data, target = data.to(self.device), target.to(self.device)
             data, target = data.to(self.device), target.to(self.device)
@@ -373,18 +376,20 @@ class RACNN_Trainer():
                     temp_loss_2 = self.criterion.TemporalConsistencyLoss(out_2[0::3], out_2[1::3], out_2[2::3], reduction='none')
                     temp_loss = temp_loss_0.sum() + temp_loss_1.sum() + temp_loss_2.sum()
 
+                    # ## NEW TEMPORAL COHERENCE LOSS
+                    # temp_loss += self.criterion.BatchContrastiveLoss(feat_hooked[0].squeeze().view(B, 3, -1))
+                    # temp_loss_meter.update(temp_loss.item(), 1)
+                    # feat_hooked.clear() ## clear for next batch
+                    
                 loss = 0.0
 
                 if loss_config == 0: ##'classification'
                     loss += cls_loss
+                    if self.time_consistency:
+                        loss += self.tc_weight*temp_loss
                 elif loss_config == 1: ##'apn'
                     loss += rank_loss
-                else: ##'whole'
-                    loss += (rank_loss + cls_loss + info_loss)
                 
-                if self.time_consistency:
-                    loss += self.tc_weight*temp_loss
-
                 loss.backward()
                 self.optimizer.step()
 
@@ -408,10 +413,17 @@ class RACNN_Trainer():
                     temp_loss_meter.update(temp_loss, 1)
                 # info_loss_meter.update(info_loss, 1)
                 # calculate accuracy
-                accuracy_0.update(compute_acc(out_0, target, B_out), 1)
-                accuracy_1.update(compute_acc(out_1, target, B_out), 1)
-                accuracy_2.update(compute_acc(out_2, target, B_out), 1)
-
+                accuracy_0.update(compute_acc(out_0.detach(), target, B_out), 1)
+                accuracy_1.update(compute_acc(out_1.detach(), target, B_out), 1)
+                accuracy_2.update(compute_acc(out_2.detach(), target, B_out), 1)
+                
+                del out_0
+                del out_1
+                del out_2
+                del loss
+                torch.cuda.empty_cache()
+        
+        # h0.remove()
 
         return {
             'cls_loss': cls_loss_meter.avg, 

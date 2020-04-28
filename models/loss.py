@@ -20,7 +20,7 @@ class TCLoss(nn.Module):
         self.b = self.b/torch.sum(self.b).view(1)
         
         self.max_ent = self.b*torch. log(self.b)
-        self.max_ent = -1.0*torch.sum(self.max_ent.cuda(), dim=1)
+        self.max_ent = -1.0*torch.sum(self.max_ent, dim=1)
         print('max entropy: {}'.format(self.max_ent))
     
     """
@@ -82,6 +82,28 @@ class TCLoss(nn.Module):
         corr = torch.matmul(features_, features_.t())
         corr = F.softmax(corr, dim=-1)
         return F.cross_entropy(corr, targets)
+
+
+    def BatchContrastiveLoss(self, temp_features):
+        ## [B, 3, C]
+        assert len(temp_features.shape) == 3
+        C=temp_features.shape[2]
+        cur  = temp_features[:, 0]
+        prev = temp_features[:, 1]
+        next = temp_features[:, 2]
+        
+        ## Positive sample
+        # print()
+        cur_prev_next_similarity = torch.exp(torch.sum(cur*prev, dim=-1)/C) + torch.exp(torch.sum(cur*next, dim=-1)/C) 
+        ## Negative samples
+        batch_similarity = torch.sum(torch.exp(torch.matmul(cur,cur.t())/C), dim=-1) ## sum of each cur to all curs
+        # print(cur_prev_next_similarity)
+        # print(batch_similarity)
+        # input()
+        return (-1.0* torch.log(cur_prev_next_similarity/batch_similarity)).sum()
+
+
+
 
     # def PerLocClassLoss(self, inputs, targets):
     #     # size of input
