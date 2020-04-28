@@ -297,7 +297,7 @@ class CAMDrawer():
             # cv2.imwrite(f"{output_img_path}-scale1-cam.jpg", result1)
             # cv2.imwrite(f"{output_img_path}-scale2-cam.jpg", result2)
 
-            # print("theta", theta)
+            print("theta", theta)
             out_len_01 = 256*theta[0][0][2].item()
             out_center_01_x = (1 + theta[0][0][0].item()) * 128
             out_center_01_y = (1 + theta[0][0][1].item()) * 128   
@@ -306,8 +306,8 @@ class CAMDrawer():
             out_center_12_x = (1 + theta[1][0][0].item()) * 128
             out_center_12_y = (1 + theta[1][0][1].item()) * 128    
 
-            # print("scale 0,", out_len_01, out_center_01_x ,out_center_01_y)
-            # print("scale 1,", out_len_12, out_center_12_x ,out_center_12_y)
+            print("scale 0,", out_len_01, out_center_01_x ,out_center_01_y)
+            print("scale 1,", out_len_12, out_center_12_x ,out_center_12_y)
             upper_01_x =int(out_center_01_x - out_len_01/2)
             upper_01_y =int(out_center_01_y - out_len_01/2)
             lower_01_x =int(out_center_01_x + out_len_01/2)
