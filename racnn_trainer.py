@@ -266,18 +266,7 @@ class RACNN_Trainer():
         temp_loss_meter = AverageMeter()
         accuracy_0 = AverageMeter()
         accuracy_1 = AverageMeter()
-        accuracy_2 = AverageMeter()
-
-        # ## hook gap feature
-        # feat_hooked = []
-        # def hook_feature(module, input, output):
-        #     # print('hook_gap_feature')
-        #     feat_hooked.append(output) 
-        #     # print(output.shape)
-        #     # print("output: ", output[0,0:10])
-        #     # print()
-        # # self.model.conv_scale_0[-2].register_forward_hook(hook_conv_feature)
-        # h0 = self.model.gap.register_forward_hook(hook_feature)
+        # accuracy_2 = AverageMeter()
 
         for batch_idx, batch in tqdm.tqdm(
             enumerate(self.trainloader), 
@@ -290,15 +279,8 @@ class RACNN_Trainer():
             target = self.generate_confusion_target(target)
 
             if self.mini_train and batch_idx == 5: break
-
-            # ## data augmentation via imgaug
-            # if self.trainloader.dataset.augmentation:
-            #     data = self.augmenter(data)
-            #     # print(data)
             
-            ## 
             data, target = data.to(self.device), target.to(self.device)
-
             B = data.shape[0]
             H, W = data.shape[-2:] # [-2:]==[-2,-1]; [-2:-1] == [-2]
 
@@ -310,8 +292,8 @@ class RACNN_Trainer():
                     target = target.view(B*3)
 
                 out_list, t_list = self.model(data, target.unsqueeze(1), loss_config) ## [B, NumClasses]
-                out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
-                t_01, t_12 = t_list[0], t_list[1]
+                out_0, out_1 = out_list[0], out_list[1]
+                t_01 = t_list[0]
                 B_out = out_0.shape[0] ## if temporal_coherence, B_out = B*3
 
                 ### Classification loss
@@ -319,26 +301,27 @@ class RACNN_Trainer():
                 if loss_config == 0:
                     cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
                     cls_loss_1, preds_1 = self.criterion.ImgLvlClassLoss(out_1, target, reduction='none')
-                    cls_loss_2, preds_2 = self.criterion.ImgLvlClassLoss(out_2, target, reduction='none')
-                    cls_loss += cls_loss_0.sum() + cls_loss_1.sum() + cls_loss_2.sum()
+                    cls_loss += cls_loss_0.sum() + cls_loss_1.sum()
+                    # cls_loss_2, preds_2 = self.criterion.ImgLvlClassLoss(out_2, target, reduction='none')
+                    # cls_loss += cls_loss_0.sum() + cls_loss_1.sum() + cls_loss_2.sum()
                     cls_loss_meter.update(cls_loss.item(), 1)
 
             
                 ### Ranking loss
                 rank_loss = 0.0
                 if loss_config == 1:
-                    # probs_0 = F.softmax(out_0, dim=-1)
-                    # probs_1 = F.softmax(out_1, dim=-1)
-                    # probs_2 = F.softmax(out_1, dim=-1)
-                    # gt_probs_0 = probs_0[list(range(B_out)), target]
-                    # gt_probs_1 = probs_1[list(range(B_out)), target]
-                    # gt_probs_2 = probs_2[list(range(B_out)), target]
-                    gt_probs_0 = out_0[list(range(B_out)), target]
-                    gt_probs_1 = out_1[list(range(B_out)), target]
-                    gt_probs_2 = out_2[list(range(B_out)), target]
-                    rank_loss_1 = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
-                    rank_loss_2 = self.criterion.PairwiseRankingLoss(gt_probs_1, gt_probs_2, margin=self.margin)
-                    rank_loss += rank_loss_1.sum() + rank_loss_2.sum()
+                    probs_0 = F.softmax(out_0, dim=-1)
+                    probs_1 = F.softmax(out_1, dim=-1)
+                    probs_2 = F.softmax(out_1, dim=-1)
+                    gt_probs_0 = probs_0[list(range(B_out)), target]
+                    gt_probs_1 = probs_1[list(range(B_out)), target]
+                    gt_probs_2 = probs_2[list(range(B_out)), target]
+                    # gt_probs_0 = out_0[list(range(B_out)), target]
+                    # gt_probs_1 = out_1[list(range(B_out)), target]
+                    # gt_probs_2 = out_2[list(range(B_out)), target]
+                    rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
+                    # rank_loss_2 = self.criterion.PairwiseRankingLoss(gt_probs_1, gt_probs_2, margin=self.margin)
+                    # rank_loss += rank_loss_1.sum() + rank_loss_2.sum()
                     rank_loss_meter.update(rank_loss.item(), 1)
 
 
@@ -350,10 +333,9 @@ class RACNN_Trainer():
                     ## [0::3] staring from 0, get every another three elements
                     temp_loss_0 = self.criterion.TemporalConsistencyLoss(out_0[0::3], out_0[1::3], out_0[2::3], reduction='none')
                     temp_loss_1 = self.criterion.TemporalConsistencyLoss(out_1[0::3], out_1[1::3], out_1[2::3], reduction='none')
-                    temp_loss_2 = self.criterion.TemporalConsistencyLoss(out_2[0::3], out_2[1::3], out_2[2::3], reduction='none')
-                    # temp_loss += (temp_loss_0*(conf_0**2) + (1-conf_0)**2).sum()
-                    # temp_loss += (temp_loss_1*(conf_1**2) + (1-conf_1)**2).sum()
-                    temp_loss = temp_loss_0.sum() + temp_loss_1.sum() + temp_loss_2.sum()
+                    temp_loss = temp_loss_0.sum() + temp_loss_1.sum()
+                    # temp_loss_2 = self.criterion.TemporalConsistencyLoss(out_2[0::3], out_2[1::3], out_2[2::3], reduction='none')
+                    # temp_loss = temp_loss_0.sum() + temp_loss_1.sum() + temp_loss_2.sum()
 
                     # ## NEW TEMPORAL COHERENCE LOSS
                     # temp_loss += self.criterion.BatchContrastiveLoss(feat_hooked[0].squeeze().view(B, 3, -1))
@@ -378,11 +360,11 @@ class RACNN_Trainer():
                 # calculate accuracy
                 accuracy_0.update(compute_acc(out_0.detach(), target, B_out), 1)
                 accuracy_1.update(compute_acc(out_1.detach(), target, B_out), 1)
-                accuracy_2.update(compute_acc(out_2.detach(), target, B_out), 1)
+                # accuracy_2.update(compute_acc(out_2.detach(), target, B_out), 1)
                 
                 del out_0
                 del out_1
-                del out_2
+                # del out_2
                 del loss
                 torch.cuda.empty_cache()
         
@@ -390,10 +372,11 @@ class RACNN_Trainer():
 
         return {
             'cls_loss': cls_loss_meter.avg, 
-            'cls_acc_0': accuracy_0.avg, 'cls_acc_1': accuracy_1.avg, 'cls_acc_2': accuracy_2.avg, 
+            'cls_acc_0': accuracy_0.avg, 
+            'cls_acc_1': accuracy_1.avg, 
+            # 'cls_acc_2': accuracy_2.avg, 
             'rank_loss': rank_loss_meter.avg, 
             'temp_loss': temp_loss_meter.avg,
-            # 'info_loss': info_loss_meter.avg,
             'total_loss': loss_meter.avg
             }
 
@@ -405,7 +388,7 @@ class RACNN_Trainer():
         rank_loss_meter = AverageMeter()
         accuracy_0 = AverageMeter()
         accuracy_1 = AverageMeter()
-        accuracy_2 = AverageMeter()
+        # accuracy_2 = AverageMeter()
 
 
         with torch.no_grad():
@@ -415,11 +398,11 @@ class RACNN_Trainer():
                 ## weight
                 params_classifier_0 = list(self.model.classifier_0.parameters())
                 params_classifier_1 = list(self.model.classifier_1.parameters())
-                params_classifier_2 = list(self.model.classifier_2.parameters())
+                # params_classifier_2 = list(self.model.classifier_2.parameters())
                 ## -2 because we have bias in the classifier
                 weight_softmax_0 = np.squeeze(params_classifier_0[-2].data.cpu().numpy())
                 weight_softmax_1 = np.squeeze(params_classifier_1[-2].data.cpu().numpy())
-                weight_softmax_2 = np.squeeze(params_classifier_2[-2].data.cpu().numpy())
+                # weight_softmax_2 = np.squeeze(params_classifier_2[-2].data.cpu().numpy())
 
                 # hook the feature extractor instantaneously and remove it once data is hooked
                 f_conv_0, f_conv_1, f_conv_2 = [], [], []
@@ -429,13 +412,13 @@ class RACNN_Trainer():
                 def hook_feature_conv_scale_1(module, input, output):
                     f_conv_1.clear()
                     f_conv_1.append(output.data.cpu().numpy())
-                def hook_feature_conv_scale_2(module, input, output):
-                    f_conv_2.clear()
-                    f_conv_2.append(output.data.cpu().numpy())
+                # def hook_feature_conv_scale_2(module, input, output):
+                #     f_conv_2.clear()
+                #     f_conv_2.append(output.data.cpu().numpy())
                 ## place hooker
                 h0 = self.model.conv_scale_0[-2].register_forward_hook(hook_feature_conv_scale_0)
                 h1 = self.model.conv_scale_1[-2].register_forward_hook(hook_feature_conv_scale_1)
-                h2 = self.model.conv_scale_2[-2].register_forward_hook(hook_feature_conv_scale_2)
+                # h2 = self.model.conv_scale_2[-2].register_forward_hook(hook_feature_conv_scale_2)
                 print("saving CAMs")
 
             
@@ -454,27 +437,28 @@ class RACNN_Trainer():
 
                 # data [B, C, H, W]
                 out_list, t_list = self.model(data,target=None) ## [B, NumClasses]
-                out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
-                t_01, t_12 = t_list[0], t_list[1]
+                out_0, out_1 = out_list[0], out_list[1]
+                t_01 = t_list[0]
                 B_out = out_0.shape[0] ## if temporal_coherence, B_out = B*3
 
                 print(f"{batch_idx}: GT: {target.item()} // theta: {t_01} // theta: {t_12}")
                 ### Classification loss
                 cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
                 cls_loss_1, preds_1 = self.criterion.ImgLvlClassLoss(out_1, target, reduction='none')
-                cls_loss_2, preds_2 = self.criterion.ImgLvlClassLoss(out_2, target, reduction='none')
-                cls_loss = cls_loss_0.sum() + cls_loss_1.sum() + cls_loss_2.sum()
+                # cls_loss_2, preds_2 = self.criterion.ImgLvlClassLoss(out_2, target, reduction='none')
+                # cls_loss = cls_loss_0.sum() + cls_loss_1.sum() + cls_loss_2.sum()
+                cls_loss = cls_loss_0.sum() + cls_loss_1.sum()
 
                 ### Ranking loss
                 probs_0 = F.softmax(out_0, dim=-1)
                 probs_1 = F.softmax(out_1, dim=-1)
-                probs_2 = F.softmax(out_2, dim=-1)
+                # probs_2 = F.softmax(out_2, dim=-1)
                 gt_probs_0 = probs_0[list(range(B)), target]
                 gt_probs_1 = probs_1[list(range(B)), target]
-                gt_probs_2 = probs_2[list(range(B)), target]
-                rank_loss_1 = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
-                rank_loss_2 = self.criterion.PairwiseRankingLoss(gt_probs_1, gt_probs_2, margin=self.margin)
-                rank_loss = rank_loss_1.sum() + rank_loss_2.sum()
+                # gt_probs_2 = probs_2[list(range(B)), target]
+                rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin).sum()
+                # rank_loss_2 = self.criterion.PairwiseRankingLoss(gt_probs_1, gt_probs_2, margin=self.margin)
+                # rank_loss = rank_loss_1.sum() + rank_loss_2.sum()
 
                 ##
                 cls_loss_meter.update(cls_loss, 1)
@@ -482,7 +466,7 @@ class RACNN_Trainer():
                 # calculate accuracy
                 accuracy_0.update(compute_acc(out_0, target, B_out), 1)
                 accuracy_1.update(compute_acc(out_1, target, B_out), 1)
-                accuracy_2.update(compute_acc(out_2, target, B_out), 1)
+                # accuracy_2.update(compute_acc(out_2, target, B_out), 1)
 
                 # if self.draw_cams:
                 if self.draw_cams and epoch % self.save_period == 0:
@@ -490,7 +474,7 @@ class RACNN_Trainer():
                     # print(img_path)
                     weight_softmax_0_gt = weight_softmax_0[target, :]
                     weight_softmax_1_gt = weight_softmax_1[target, :]
-                    weight_softmax_2_gt = weight_softmax_2[target, :]
+                    # weight_softmax_2_gt = weight_softmax_2[target, :]
 
                     self.drawer.draw_single_cam(
                         epoch, target, img_path[0], 
@@ -502,10 +486,10 @@ class RACNN_Trainer():
                         gt_probs_1, weight_softmax_1_gt, f_conv_1[-1], 
                         lvl = 1, theta=ListDatatoCPU(t_list[0:1]), sub_folder='scale_1')
                     
-                    self.drawer.draw_single_cam(
-                        epoch, target, img_path[0], 
-                        gt_probs_2, weight_softmax_2_gt, f_conv_2[-1], 
-                        lvl = 2, theta=ListDatatoCPU(t_list[0:2]), sub_folder='scale_2')
+                    # self.drawer.draw_single_cam(
+                    #     epoch, target, img_path[0], 
+                    #     gt_probs_2, weight_softmax_2_gt, f_conv_2[-1], 
+                    #     lvl = 2, theta=ListDatatoCPU(t_list[0:2]), sub_folder='scale_2')
 
                     # input()
             # if self.draw_cams:
@@ -524,22 +508,22 @@ class RACNN_Trainer():
                 write_video_from_images(cam_path_scale_1, videoname_1)
                 shutil.rmtree(cam_path_scale_1)
 
-                cam_path_scale_2 = os.path.join(self.result_folder, 'scale_2', f"epoch{epoch}")
-                videoname_2 = f'video_epoch{epoch}_{timestamp}_scale2.avi'
-                videoname_2 = os.path.join(self.result_folder, videoname_2)
-                write_video_from_images(cam_path_scale_2, videoname_2)
-                shutil.rmtree(cam_path_scale_2)
+                # cam_path_scale_2 = os.path.join(self.result_folder, 'scale_2', f"epoch{epoch}")
+                # videoname_2 = f'video_epoch{epoch}_{timestamp}_scale2.avi'
+                # videoname_2 = os.path.join(self.result_folder, videoname_2)
+                # write_video_from_images(cam_path_scale_2, videoname_2)
+                # shutil.rmtree(cam_path_scale_2)
 
                 h0.remove()
                 h1.remove()
-                h2.remove()
+                # h2.remove()
 
 
         return {
             'cls_loss': cls_loss_meter.avg, 
             'cls_acc_0': accuracy_0.avg, 
             'cls_acc_1': accuracy_1.avg, 
-            'cls_acc_2': accuracy_2.avg, 
+            # 'cls_acc_2': accuracy_2.avg, 
             'rank_loss': rank_loss_meter.avg,
         }
 
