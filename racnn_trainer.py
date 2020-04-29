@@ -201,10 +201,10 @@ class RACNN_Trainer():
 
     ## pre-train session
     def pretrain(self):
-        for _ in range(5):
+        for _ in range(1):
             self.pretrain_classification()
         self._save_checkpoint(0, pretrain_ckp=True)
-        for _ in range(3):
+        for _ in range(1):
             self.pretrain_apn()
         self._save_checkpoint(1, pretrain_ckp=True)
         print("Pre-train Finished")
@@ -215,7 +215,7 @@ class RACNN_Trainer():
         if max_epoch is not None:
             self.max_epoch = max_epoch
 
-        # self.test_one_epoch(0)
+        self.test_one_epoch(0)
 
         for epoch in range(max_epoch):
             ## training
@@ -441,7 +441,7 @@ class RACNN_Trainer():
                 t_01 = t_list[0]
                 B_out = out_0.shape[0] ## if temporal_coherence, B_out = B*3
 
-                print(f"{batch_idx}: GT: {target.item()} // theta: {t_01} // theta: {t_12}")
+                print(f"{batch_idx}: GT: {target.item()} // theta: {t_01}")
                 ### Classification loss
                 cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
                 cls_loss_1, preds_1 = self.criterion.ImgLvlClassLoss(out_1, target, reduction='none')
@@ -559,8 +559,8 @@ class RACNN_Trainer():
                     target = target.view(B*3)
 
                 out_list, t_list = self.model(data, target=target.unsqueeze(1)) ## [B, NumClasses]
-                out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
-                t_01, t_12 = t_list[0], t_list[1]
+                out_0, out_1 = out_list[0], out_list[1]
+                t_01 = t_list[0]
                 B_out = out_0.shape[0]
                 
                 ### Classification loss
@@ -638,8 +638,8 @@ class RACNN_Trainer():
                     target = target.view(B*3)
                 
                 out_list, t_list = self.model(data, target.unsqueeze(1), 1) ## [B, NumClasses]
-                out_0, out_1, out_2 = out_list[0], out_list[1], out_list[2]
-                t_01, t_12 = t_list[0], t_list[1]
+                out_0, out_1 = out_list[0], out_list[1]
+                t_01 = t_list[0]
                 B_out = out_0.shape[0]
 
                 ### ---- original implementation for batchsize 1
@@ -687,7 +687,7 @@ class RACNN_Trainer():
                 loss_meter.update(loss.item())
 
                 ## draw images
-                img_path = self.trainloader.dataset.get_fname(idx[0])
+                img_path = self.trainloader.dataset.get_fname(idx)
                 for i in range(B):
                     img = cv2.imread(img_path[i], -1) ## [H, W, C]
                     cam = heatmaps[i,:] * 0.3 + img * 0.5

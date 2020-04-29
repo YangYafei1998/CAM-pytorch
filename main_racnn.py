@@ -12,7 +12,7 @@ import torchvision.models as models
 from PIL import Image
 import glob
 from models.new_dataloader import ImageDataset
-from models import TCLoss, RACNN, RACNN3Scale
+from models import TCLoss, RACNN_original_apn, RACNN_our_apn
 
 from racnn_trainer import RACNN_Trainer
 from racnn3_trainer import RACNN3_Trainer
@@ -26,7 +26,7 @@ def main(config):
     ## set seed
     torch.manual_seed(config['seed'])
     
-    ARCH_TYPE = config.get('arch', 'RACNN')
+    ARCH_TYPE = config.get('arch', 'our')
     print("NetArch: ", ARCH_TYPE)
 
     LEARNING_RATE = config['learning_rate']
@@ -69,13 +69,10 @@ def main(config):
         device = torch.device("cpu")
     print("RACNN with ResNet50")
 
-    if ARCH_TYPE == 'RACNN':
-        net = RACNN(num_classes=3, device=device)
-    elif ARCH_TYPE == 'RACNN3':
-        net = RACNN3Scale(num_classes=3, lvls=3, device=device)
+    if ARCH_TYPE == 'our':
+        net = RACNN_our_apn(num_classes=3, device=device)
     else:
-        raise NotImplementedError
-
+        net = RACNN_original_apn(num_classes=3, device=device)
 
     ## optimizer
     optimizer = torch.optim.SGD(net.parameters(), lr=LEARNING_RATE, momentum=0.9, weight_decay=WEIGHT_DECAY)
@@ -89,12 +86,7 @@ def main(config):
     logger = SimpleLogger(logfname, 'debug')
 
     ## train-test loop
-    if ARCH_TYPE == 'RACNN':
-        trainer = RACNN_Trainer(net, optimizer, scheduler, criterion, train_dataset, test_dataset, logger, config)
-    elif ARCH_TYPE == 'RACNN3':
-        trainer = RACNN3_Trainer(net, optimizer, scheduler, criterion, train_dataset, test_dataset, logger, config)
-    else:
-        raise NotImplementedError
+    trainer = RACNN_Trainer(net, optimizer, scheduler, criterion, train_dataset, test_dataset, logger, config)
 
     if config.get('pretrain', False):
         trainer.pretrain()
@@ -112,7 +104,7 @@ if __name__ == '__main__':
                         help='the size of each minibatch')
     parser.add_argument('--max_epoch', default=None, help='max epochs', type=int)
     
-    parser.add_argument('--arch', default="RACNN", type=str, 
+    parser.add_argument('--arch', default=None, type=str, 
                         help='Network architecture')
     parser.add_argument('--augmentation', action='store_true')
     parser.add_argument('--temporal', action='store_true')
