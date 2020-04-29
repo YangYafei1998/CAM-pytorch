@@ -200,7 +200,7 @@ class RACNN_Trainer():
 
     ## pre-train session
     def pretrain(self):
-        for _ in range(5):
+        for _ in range(10):
             self.pretrain_classification()
         self._save_checkpoint(0, pretrain_ckp=True)
         for _ in range(3):
@@ -214,7 +214,6 @@ class RACNN_Trainer():
         if max_epoch is not None:
             self.max_epoch = max_epoch
 
-        # self.test_one_epoch(0)
 
         for epoch in range(max_epoch):
             ## training
@@ -224,12 +223,21 @@ class RACNN_Trainer():
             self.logger.info(f"Classification\n")
             log = self.train_one_epoch(epoch, 0)
             self.logger.info(log)
+            
+            # self.test_for_testing(0)
+            # print('test_for_testing finished')
+
+            ## testing            
+            self.logger.info(f"Validation:")
+            log = self.test_one_epoch(epoch)
+            self.logger.info(log)
+            self.logger.info("  \n")
 
             if epoch != 0 and epoch % self.interleaving_step == 0:
+                self._save_checkpoint(epoch)
                 self.logger.info(f"APN\n")
                 log = self.train_one_epoch(epoch, 1)
                 self.logger.info(log)
-                self._save_checkpoint(epoch)
 
             # if epoch % 7 == 5 or epoch % 7 == 6:
             #     self.logger.info(f"APN")
@@ -244,11 +252,11 @@ class RACNN_Trainer():
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
             
-            ## testing            
-            self.logger.info(f"Validation:")
-            log = self.test_one_epoch(epoch)
-            self.logger.info(log)
-            self.logger.info("  \n")
+            # ## testing            
+            # self.logger.info(f"Validation:")
+            # log = self.test_one_epoch(epoch)
+            # self.logger.info(log)
+            # self.logger.info("  \n")
 
         print("Finished")
 
@@ -406,6 +414,12 @@ class RACNN_Trainer():
         accuracy_0 = AverageMeter()
         accuracy_1 = AverageMeter()
         accuracy_2 = AverageMeter()
+        box_iou_0 = AverageMeter()
+        box_iou_1 = AverageMeter()
+        box_iou_2 = AverageMeter()
+        pixel_iou_0 = AverageMeter()
+        pixel_iou_1 = AverageMeter()
+        pixel_iou_2 = AverageMeter()
 
 
         with torch.no_grad():
@@ -458,7 +472,7 @@ class RACNN_Trainer():
                 t_01, t_12 = t_list[0], t_list[1]
                 B_out = out_0.shape[0] ## if temporal_coherence, B_out = B*3
 
-                print(f"{batch_idx}: GT: {target.item()} // theta: {t_01} // theta: {t_12}")
+                # print(f"{batch_idx}: GT: {target.item()} // theta: {t_01} // theta: {t_12}")
                 ### Classification loss
                 cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
                 cls_loss_1, preds_1 = self.criterion.ImgLvlClassLoss(out_1, target, reduction='none')
@@ -492,20 +506,27 @@ class RACNN_Trainer():
                     weight_softmax_1_gt = weight_softmax_1[target, :]
                     weight_softmax_2_gt = weight_softmax_2[target, :]
 
-                    self.drawer.draw_single_cam(
+                    kl_loss, box_iou, pixel_iou = self.drawer.draw_single_cam(
                         epoch, target, img_path[0], 
                         gt_probs_0, weight_softmax_0_gt, f_conv_0[-1], 
                         theta=None, sub_folder='scale_0', GT = locationGT[0])
 
-                    self.drawer.draw_single_cam(
+                    box_iou_0.update(box_iou, 1)
+                    pixel_iou_0.update(pixel_iou, 1)
+
+                    kl_loss, box_iou, pixel_iou = self.drawer.draw_single_cam(
                         epoch, target, img_path[0], 
                         gt_probs_1, weight_softmax_1_gt, f_conv_1[-1], 
                         lvl = 1, theta=ListDatatoCPU(t_list[0:1]), sub_folder='scale_1', GT = locationGT[0])
-                    
-                    self.drawer.draw_single_cam(
+                    box_iou_1.update(box_iou, 1)
+                    pixel_iou_1.update(pixel_iou, 1)
+
+                    kl_loss, box_iou, pixel_iou = self.drawer.draw_single_cam(
                         epoch, target, img_path[0], 
                         gt_probs_2, weight_softmax_2_gt, f_conv_2[-1], 
                         lvl = 2, theta=ListDatatoCPU(t_list[0:2]), sub_folder='scale_2', GT = locationGT[0])
+                    box_iou_2.update(box_iou, 1)
+                    pixel_iou_2.update(pixel_iou, 1)
 
                     # input()
             # if self.draw_cams:
@@ -534,13 +555,18 @@ class RACNN_Trainer():
                 h1.remove()
                 h2.remove()
 
-
         return {
             'cls_loss': cls_loss_meter.avg, 
             'cls_acc_0': accuracy_0.avg, 
             'cls_acc_1': accuracy_1.avg, 
             'cls_acc_2': accuracy_2.avg, 
             'rank_loss': rank_loss_meter.avg,
+            'box_iou_0': box_iou_0.avg,
+            'box_iou_1': box_iou_1.avg,
+            'box_iou_2': box_iou_2.avg,
+            'pixel_iou_0': pixel_iou_0.avg,
+            'pixel_iou_1': pixel_iou_1.avg,
+            'pixel_iou_2': pixel_iou_2.avg,
         }
 
     ##

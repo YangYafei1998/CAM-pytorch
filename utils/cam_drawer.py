@@ -278,7 +278,9 @@ class CAMDrawer():
         #generate bbox from CAM 
         prop = generate_bbox(CAM, self.bar)
         bbox_img = cv2.rectangle(result, (prop.bbox[1], prop.bbox[0]), (prop.bbox[3], prop.bbox[2]), (0, 0, 255), 2)
-        
+        # kl_loss = 0
+        # box_iou = 0
+        # pixel_iou = 0
         if GT is not None:
             line_coord = GT.split()
             gt_image = np.zeros((256, 256), dtype=np.uint8)
@@ -292,11 +294,7 @@ class CAMDrawer():
                 x, y, x_len, y_len = convert_bbox(theta[0], x, y, x_len, y_len)
                 if lvl == 2:
                     x, y, x_len, y_len = convert_bbox(theta[1], x, y, x_len, y_len)
-                    
-                
-                
-                
-                # print(new_center_y)
+
                 gt_image[y:y+y_len, x:x+x_len] = 1
 
             coverted_heatmap = torch.from_numpy(CAM).float() + 1e-20
@@ -326,7 +324,7 @@ class CAMDrawer():
 
         cv2.imwrite(output_img_path, result)
         # print(f"save cam to {output_img_path}")
-        return
+        return kl_loss, box_iou, pixel_iou
 
     def draw_single_cam_and_zoom_in_box(
         self, epoch, gt_lbl, img_path, 
