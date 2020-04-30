@@ -114,12 +114,14 @@ class RACNN_Trainer():
         if config['disable_workers']:
             self.trainloader = torch.utils.data.DataLoader(
                 train_dataset, batch_size=batch_size, shuffle=True, num_workers=0) 
-            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=0) 
+            # self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=0) 
+            self.pretrainloader = torch.utils.data.DataLoader(train_dataset, batch_size=1, shuffle=True, num_workers=0) 
             self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0) 
         else:
             self.trainloader = torch.utils.data.DataLoader(
                 train_dataset, batch_size=batch_size, shuffle=True, num_workers=4) 
-            self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=4) 
+            # self.pretrainloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=True, num_workers=4) 
+            self.pretrainloader = torch.utils.data.DataLoader(train_dataset, batch_size=1, shuffle=True, num_workers=4) 
             self.testloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=4) 
 
         if config['resume'] is not None:
@@ -151,11 +153,11 @@ class RACNN_Trainer():
                 'checkpoint-epoch{}.pth'.format(epoch)
             )
         torch.save(state, filename)
-        self.logger.info("Saving checkpoint: {} ...".format(filename))
+        self.logger.info("Saving checkpoint: {} ...\n".format(filename))
         if save_best:
             best_path = os.path.join(self.ckpt_folder, 'model_best.pth')
             torch.save(state, best_path)
-            self.logger.info("Saving current best: {} ...".format('model_best.pth'))
+            self.logger.info("Saving current best: {} ...\n".format('model_best.pth'))
 
 
     ## resume from a checkpoint
@@ -201,10 +203,10 @@ class RACNN_Trainer():
 
     ## pre-train session
     def pretrain(self):
-        for _ in range(1):
+        for _ in range(5):
             self.pretrain_classification()
         self._save_checkpoint(0, pretrain_ckp=True)
-        for _ in range(1):
+        for _ in range(3):
             self.pretrain_apn()
         self._save_checkpoint(1, pretrain_ckp=True)
         print("Pre-train Finished")
@@ -215,7 +217,7 @@ class RACNN_Trainer():
         if max_epoch is not None:
             self.max_epoch = max_epoch
 
-        self.test_one_epoch(0)
+        # self.test_one_epoch(0)
 
         for epoch in range(max_epoch):
             ## training
@@ -246,7 +248,7 @@ class RACNN_Trainer():
                 self.lr_scheduler.step()
             
             ## testing            
-            self.logger.info(f"Validation:")
+            self.logger.info(f"Validation:\n")
             log = self.test_one_epoch(epoch)
             self.logger.info(log)
             self.logger.info("  \n")
@@ -261,12 +263,15 @@ class RACNN_Trainer():
 
         loss_meter = AverageMeter()
         cls_loss_meter = AverageMeter()
+        cls_loss0_meter = AverageMeter()
+        cls_loss1_meter = AverageMeter()
         rank_loss_meter = AverageMeter()
         info_loss_meter = AverageMeter()
         temp_loss_meter = AverageMeter()
+        temp0_loss_meter = AverageMeter()
+        temp1_loss_meter = AverageMeter()
         accuracy_0 = AverageMeter()
         accuracy_1 = AverageMeter()
-        # accuracy_2 = AverageMeter()
 
         for batch_idx, batch in tqdm.tqdm(
             enumerate(self.trainloader), 
@@ -276,6 +281,7 @@ class RACNN_Trainer():
             leave=False):
         # for batch_idx, batch in enumerate(self.trainloader):
             data, target, idx = batch
+            # print("idx in train is ,", idx)
             target = self.generate_confusion_target(target)
 
             if self.mini_train and batch_idx == 5: break
@@ -302,9 +308,14 @@ class RACNN_Trainer():
                     cls_loss_0, preds_0 = self.criterion.ImgLvlClassLoss(out_0, target, reduction='none')
                     cls_loss_1, preds_1 = self.criterion.ImgLvlClassLoss(out_1, target, reduction='none')
                     cls_loss += cls_loss_0.sum() + cls_loss_1.sum()
+                    # print("cls_loss 0 :",cls_loss_0)
+                    # print("cls_loss_1: ",cls_loss_1)
                     # cls_loss_2, preds_2 = self.criterion.ImgLvlClassLoss(out_2, target, reduction='none')
                     # cls_loss += cls_loss_0.sum() + cls_loss_1.sum() + cls_loss_2.sum()
                     cls_loss_meter.update(cls_loss.item(), 1)
+                    cls_loss0_meter.update(cls_loss_0.sum().item(), 1)
+                    cls_loss1_meter.update(cls_loss_1.sum().item(), 1)
+
 
             
                 ### Ranking loss
@@ -312,18 +323,20 @@ class RACNN_Trainer():
                 if loss_config == 1:
                     probs_0 = F.softmax(out_0, dim=-1)
                     probs_1 = F.softmax(out_1, dim=-1)
-                    probs_2 = F.softmax(out_1, dim=-1)
+                    # probs_2 = F.softmax(out_2, dim=-1)
                     gt_probs_0 = probs_0[list(range(B_out)), target]
                     gt_probs_1 = probs_1[list(range(B_out)), target]
-                    gt_probs_2 = probs_2[list(range(B_out)), target]
+                    # gt_probs_2 = probs_2[list(range(B_out)), target]
                     # gt_probs_0 = out_0[list(range(B_out)), target]
                     # gt_probs_1 = out_1[list(range(B_out)), target]
                     # gt_probs_2 = out_2[list(range(B_out)), target]
                     rank_loss = self.criterion.PairwiseRankingLoss(gt_probs_0, gt_probs_1, margin=self.margin)
+                    # print("rank_Loss", rank_loss)
+                    rank_loss = rank_loss.sum()
+                    # print("rank_Loss.sum", rank_loss)
+                    rank_loss_meter.update(rank_loss.item(),1)
                     # rank_loss_2 = self.criterion.PairwiseRankingLoss(gt_probs_1, gt_probs_2, margin=self.margin)
                     # rank_loss += rank_loss_1.sum() + rank_loss_2.sum()
-                    rank_loss_meter.update(rank_loss.item(), 1)
-
 
                 ### Temporal coherence
                 temp_loss = 0.0
@@ -336,7 +349,9 @@ class RACNN_Trainer():
                     temp_loss = temp_loss_0.sum() + temp_loss_1.sum()
                     # temp_loss_2 = self.criterion.TemporalConsistencyLoss(out_2[0::3], out_2[1::3], out_2[2::3], reduction='none')
                     # temp_loss = temp_loss_0.sum() + temp_loss_1.sum() + temp_loss_2.sum()
-
+                    temp_loss_meter.update(temp_loss.item(), 1)
+                    temp0_loss_meter.update(temp_loss_0.sum().item(), 1)
+                    temp1_loss_meter.update(temp_loss_1.sum().item(), 1)
                     # ## NEW TEMPORAL COHERENCE LOSS
                     # temp_loss += self.criterion.BatchContrastiveLoss(feat_hooked[0].squeeze().view(B, 3, -1))
                     # temp_loss_meter.update(temp_loss.item(), 1)
@@ -372,11 +387,15 @@ class RACNN_Trainer():
 
         return {
             'cls_loss': cls_loss_meter.avg, 
+            'cls0_loss': cls_loss0_meter.avg, 
+            'cls1_loss': cls_loss1_meter.avg, 
             'cls_acc_0': accuracy_0.avg, 
             'cls_acc_1': accuracy_1.avg, 
             # 'cls_acc_2': accuracy_2.avg, 
             'rank_loss': rank_loss_meter.avg, 
             'temp_loss': temp_loss_meter.avg,
+            'temp0_loss': temp0_loss_meter.avg,
+            'temp1_loss': temp0_loss_meter.avg,
             'total_loss': loss_meter.avg
             }
 
@@ -388,7 +407,10 @@ class RACNN_Trainer():
         rank_loss_meter = AverageMeter()
         accuracy_0 = AverageMeter()
         accuracy_1 = AverageMeter()
-        # accuracy_2 = AverageMeter()
+        box_iou_0 = AverageMeter()
+        box_iou_1 = AverageMeter()
+        pixel_iou_0 = AverageMeter()
+        pixel_iou_1 = AverageMeter()
 
 
         with torch.no_grad():
@@ -429,7 +451,7 @@ class RACNN_Trainer():
             #    ncols=80, 
             #    leave=False):
             for batch_idx, batch in enumerate(self.testloader):
-                data, target, idx = batch
+                data, target, idx ,locationGT = batch
                 data, target = data.to(self.device), target.to(self.device)
                 B = data.shape[0]
                 H, W = data.shape[-2:]
@@ -469,30 +491,31 @@ class RACNN_Trainer():
                 # accuracy_2.update(compute_acc(out_2, target, B_out), 1)
 
                 # if self.draw_cams:
-                if self.draw_cams and epoch % self.save_period == 0:
+                if (self.draw_cams and epoch % self.save_period == 0):
                     img_path = self.testloader.dataset.get_fname(idx)
                     # print(img_path)
                     weight_softmax_0_gt = weight_softmax_0[target, :]
                     weight_softmax_1_gt = weight_softmax_1[target, :]
                     # weight_softmax_2_gt = weight_softmax_2[target, :]
 
-                    self.drawer.draw_single_cam(
+                    kl_loss0, box_iou0, pixel_iou0 = self.drawer.draw_single_cam(
                         epoch, target, img_path[0], 
                         gt_probs_0, weight_softmax_0_gt, f_conv_0[-1], 
-                        theta=None, sub_folder='scale_0')
+                        theta=None, sub_folder='scale_0',GT = locationGT[0])
 
-                    self.drawer.draw_single_cam(
+                    kl_loss1, box_iou1, pixel_iou1 = self.drawer.draw_single_cam(
                         epoch, target, img_path[0], 
                         gt_probs_1, weight_softmax_1_gt, f_conv_1[-1], 
-                        lvl = 1, theta=ListDatatoCPU(t_list[0:1]), sub_folder='scale_1')
-                    
-                    # self.drawer.draw_single_cam(
-                    #     epoch, target, img_path[0], 
-                    #     gt_probs_2, weight_softmax_2_gt, f_conv_2[-1], 
-                    #     lvl = 2, theta=ListDatatoCPU(t_list[0:2]), sub_folder='scale_2')
+                        lvl = 1, theta=ListDatatoCPU(t_list[0:1]), sub_folder='scale_1',GT = locationGT[0])
+                  
+                    # print("for scale 0: kl_loss0, box_iou0, pixel_iou0",kl_loss0, box_iou0, pixel_iou0)
+                    # print("for scale 1: kl_loss1, box_iou1, pixel_iou1",kl_loss1, box_iou1, pixel_iou1)
+                    box_iou_0.update(box_iou0, 1)
+                    pixel_iou_0.update(pixel_iou0, 1)  
+                    box_iou_1.update(box_iou1, 1)
+                    pixel_iou_1.update(pixel_iou1, 1)
 
-                    # input()
-            # if self.draw_cams:
+
             if self.draw_cams and epoch % self.save_period == 0:
                 timestamp = self.result_folder.split(os.sep)[-2]
 
@@ -522,9 +545,12 @@ class RACNN_Trainer():
         return {
             'cls_loss': cls_loss_meter.avg, 
             'cls_acc_0': accuracy_0.avg, 
-            'cls_acc_1': accuracy_1.avg, 
-            # 'cls_acc_2': accuracy_2.avg, 
+            'cls_acc_1': accuracy_1.avg,  
             'rank_loss': rank_loss_meter.avg,
+            'box_iou_0': box_iou_0.avg,
+            'box_iou_1': box_iou_1.avg,
+            'pixel_iou_0': pixel_iou_0.avg,
+            'pixel_iou_1': pixel_iou_1.avg,
         }
 
     ##
@@ -613,14 +639,14 @@ class RACNN_Trainer():
         # h_apn = self.model.apn_regress_01[3].register_backward_hook(hook_apn_linear_grad)
 
         for batch_idx, batch in tqdm.tqdm(
-            enumerate(self.trainloader), 
-            total=len(self.trainloader),
+            enumerate(self.pretrainloader), 
+            total=len(self.pretrainloader),
             desc='pretrain_apn'+': ', 
             ncols=80, 
             leave=False):
         # for batch_idx, batch in enumerate(self.trainloader):
             
-            if self.mini_train and batch_idx == 5: break
+            # if self.mini_train and batch_idx == 5: break
 
             data, target, idx = batch
             
@@ -687,7 +713,8 @@ class RACNN_Trainer():
                 loss_meter.update(loss.item())
 
                 ## draw images
-                img_path = self.trainloader.dataset.get_fname(idx)
+                # print("idx is ", idx)
+                img_path = self.pretrainloader.dataset.get_fname(idx)
                 for i in range(B):
                     img = cv2.imread(img_path[i], -1) ## [H, W, C]
                     cam = heatmaps[i,:] * 0.3 + img * 0.5

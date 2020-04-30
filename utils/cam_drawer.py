@@ -74,7 +74,39 @@ def iou_box(boxA, boxB):
         iou = interArea / float(boxAArea + boxBArea - interArea)
         # return the intersection over union value
         return iou
+def convert_bbox(theta, x, y, x_len, y_len): 
+    new_center_x = (1 + theta[0][0] * theta[0][2]) * 128 
+    new_center_y = (1 + theta[0][1] * theta[0][2]) * 128
+    new_len = 256 * theta[0][2]
+    if (new_center_x - new_len/2).item() < 0:
+        new_upper_left_x = 0
+        border_x = (new_center_x - new_len/2).item()
+        x = x - border_x
+    else:
+        new_upper_left_x = (new_center_x - new_len/2).item()
 
+    if (new_center_y - new_len/2).item() < 0:
+        new_upper_left_y = 0
+        border_y = (new_center_y - new_len/2).item()
+        y = y - border_y
+    else:
+        new_upper_left_y = (new_center_y - new_len/2).item()
+    
+    if x - new_upper_left_x < 0:
+        x_len = int((x_len + (x - new_upper_left_x))/theta[0][2])
+        x = 0
+    else:
+        x = int((x - new_upper_left_x)/theta[0][2])
+        x_len = int(x_len/theta[0][2])
+
+    if y - new_upper_left_y < 0:
+        y_len = int((y_len + (y - new_upper_left_y))/theta[0][2])
+        y = 0
+    else:
+        y = int((y - new_upper_left_y)/theta[0][2])
+        y_len = int(y_len/theta[0][2])
+    
+    return x, y, x_len, y_len
 def image_sampler(image, theta, out_w=256, out_h=256):
     B, C, H, W = image.shape
     grid_X, grid_Y = np.meshgrid(np.linspace(-1,1,out_w),np.linspace(-1,1,out_h))
@@ -229,8 +261,6 @@ class CAMDrawer():
             
 
         height, width, _ = img.shape
-        # CAMs = returnCAM(features_blobs[-1], weight_softmax, 0)
-        # CAM = cv2.resize(CAMs[0], (width, height))
         CAM = returnCAM(feature, weight_softmax)
         # print(CAM.shape)
         CAM = cv2.resize(CAM, (width, height))
@@ -244,7 +274,9 @@ class CAMDrawer():
         #generate bbox from CAM 
         prop = generate_bbox(CAM, self.bar)
         bbox_img = cv2.rectangle(result, (prop.bbox[1], prop.bbox[0]), (prop.bbox[3], prop.bbox[2]), (0, 0, 255), 2)
-        
+        # kl_loss = 0
+        # box_iou = 0
+        # pixel_iou = 0
         if GT is not None:
             line_coord = GT.split()
             gt_image = np.zeros((256, 256), dtype=np.uint8)
@@ -255,49 +287,10 @@ class CAMDrawer():
             if theta is None:
                 gt_image[y:y+y_len, x:x+x_len] = 1
             else:
-                print(theta)
-                new_center_x = (1 + theta[0][0] * theta[0][2]) * 128 
-                new_center_y = (1 + theta[0][1] * theta[0][2]) * 128
-                new_len = 256 * theta[0][2]
-                if (new_center_x - new_len/2).item() < 0:
-                    new_upper_left_x = 0
-                    border_x = (new_center_x - new_len/2).item()
-                    x = x - border_x
-                else:
-                    new_upper_left_x = (new_center_x - new_len/2).item()
+                x, y, x_len, y_len = convert_bbox(theta[0], x, y, x_len, y_len)
+                if lvl == 2:
+                    x, y, x_len, y_len = convert_bbox(theta[1], x, y, x_len, y_len)
 
-                if (new_center_y - new_len/2).item() < 0:
-                    new_upper_left_y = 0
-                    border_y = (new_center_y - new_len/2).item()
-                    y = y - border_y
-                else:
-                    new_upper_left_y = (new_center_y - new_len/2).item()
-                
-                if x - new_upper_left_x < 0:
-                    x_len = int((x_len + (x - new_upper_left_x))/theta[0][2])
-                    x = 0
-                else:
-                    x = int((x - new_upper_left_x)/theta[0][2])
-                    x_len = int(x_len/theta[0][2])
-
-                if y - new_upper_left_y < 0:
-                    y_len = int((y_len + (y - new_upper_left_y))/theta[0][2])
-                    y = 0
-                else:
-                    y = int((y - new_upper_left_y)/theta[0][2])
-                    y_len = int(y_len/theta[0][2])
-                    
-                # x = int(max((x - new_upper_left_x).item(), 0)/theta[0][2])
-                # y = int(max((y - new_upper_left_y).item(), 0)/theta[0][2])
-                # x_len = int(x_len/theta[0][2])
-                # y_len = int(y_len/theta[0][2])
-                # print('------DEBUG------')
-                # print(x)
-                # print(y)
-                # print(x_len)
-                # print(y_len)
-                # print(new_center_x)
-                # print(new_center_y)
                 gt_image[y:y+y_len, x:x+x_len] = 1
 
             coverted_heatmap = torch.from_numpy(CAM).float() + 1e-20
@@ -327,7 +320,8 @@ class CAMDrawer():
 
         cv2.imwrite(output_img_path, result)
         # print(f"save cam to {output_img_path}")
-        return
+        return kl_loss, box_iou, pixel_iou
+
 
     def draw_single_cam_and_zoom_in_box(
         self, epoch, gt_lbl, img_path, 

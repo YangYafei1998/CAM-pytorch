@@ -46,15 +46,17 @@ def main(config):
     ## dataset for 6 classes
 
     train_dataset = ImageDataset(
-        'image_path_folder_6/train_image_list_sorted_6.txt', 
-        'image_path_folder_6/train_image_label_sorted_6.txt', 
+        '/userhome/30/jrwang/3Ctrain/images/train_image_list_sorted.txt', 
+        '/userhome/30/jrwang/3Ctrain/images/train_image_label_sorted.txt', 
         is_training=True, 
         augmentation=augmentation,
         temporal_coherence=temporal)
 
     test_dataset = ImageDataset(
-        'image_path_folder/test_image_list_sorted.txt', 
-        'image_path_folder/test_image_label_sorted.txt', 
+        '/userhome/30/jrwang/test/images/test_image_list_sorted.txt', 
+        '/userhome/30/jrwang/test/images/test_image_label_sorted.txt', 
+        '/userhome/30/jrwang/test/images/localizationGT.txt', 
+
         is_training=False)
 
     ## network
